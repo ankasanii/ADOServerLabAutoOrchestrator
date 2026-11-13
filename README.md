@@ -71,7 +71,13 @@ administrator privileges are not required.
 | SQL Database Engine service for a fresh installation | `NT Service\MSSQLSERVER`. |
 | SQL Server Agent service for a fresh installation | `NT Service\SQLSERVERAGENT`. |
 | Optional smtp4dev startup task | `SYSTEM`. |
-| Azure DevOps service identity | The default in the Microsoft-generated `TfsConfig NewServerBasic` configuration. This project does not explicitly override it or supply a custom service-account password. Verify the generated configuration and installed service/application-pool identities rather than assuming a specific account. |
+| Azure DevOps service identity | Normally `NT AUTHORITY\NETWORK SERVICE`, as supplied by the Microsoft-generated `TfsConfig NewServerBasic` configuration. This project does not explicitly override it or supply a custom service-account password. Verify the generated configuration and installed service/application-pool identities for your installation. |
+
+`NT AUTHORITY\NETWORK SERVICE` is the Azure DevOps service identity, not a
+separately configured SMTP login. For local smtp4dev capture, the script sets the
+SMTP server, port, and sender address but does not explicitly set an SMTP
+authentication account or password; generated authentication defaults are left
+unchanged.
 
 For example, launching as `VMNAME\labadmin` runs installation and reboot/resume
 under that account, while the SQL services use their separate built-in virtual
