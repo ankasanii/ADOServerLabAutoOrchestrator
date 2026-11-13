@@ -169,9 +169,34 @@ The [build and release workflow](.github/workflows/build-release.yml) runs on pu
 3. Build the UI and distribution ZIP.
 4. Run the UI tests in STA mode.
 5. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
-6. For a successful push to `main` only, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
+6. For a successful non-documentation-only push to `main`, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
+
+### Markdown-only fast path
+
+When every changed file ends in `.md` (case-insensitive), CI still starts and
+runs workflow/PowerShell lint, but skips guest/UI tests, the EXE/ZIP build,
+artifact upload, and release publication. The required **Build and test Windows
+package** check completes normally after lint succeeds; no `[skip ci]` marker
+or workflow-level path exclusion is needed.
+
+Pull requests are classified using the complete PR diff, not just the latest
+commit. Pushes compare the previous and current commit across the whole push.
+Renaming a non-Markdown file to Markdown still requires full validation.
+Code, scripts, workflow YAML, mixed changes, initial pushes, and empty diffs
+take the full path. Change-detection errors fail the check rather than
+silently skipping work.
+
+Documentation bundled in the ZIP is refreshed with the next full release.
+Any change to this workflow itself still runs the full pipeline.
+
+### Release publication
 
 Each release uses a unique `main-<run-id>-<run-attempt>` tag pointing to the built commit. Pull requests never publish releases. Failed lint checks, builds, or tests block publication.
+
+Future releases include GitHub-generated release notes listing merged pull
+requests, contributor credits where applicable, and a comparison link.
+The installation instructions and unsigned-application warning appear above
+the generated notes. Existing published releases are not changed automatically.
 
 Release titles use `AdoServerLabAutoOrchestrator-YYYY.MM.DD.<run-number>`, for example `AdoServerLabAutoOrchestrator-2026.11.12.2`. The date is captured once in UTC before the build; the final number is the workflow run number, not a daily build count. The same version is embedded in the EXE product/file/assembly metadata and application manifest, even if publication happens after midnight. Reruns keep the run number, while their tags remain unique.
 
@@ -179,7 +204,7 @@ Local builds default to the UTC date with revision `0`. To stamp a specific vers
 
 Push this workflow to `main` to start the first build. Monitor it in the repository's **Actions** tab, then download the ZIP from **Releases**. Release assets remain available independently of workflow artifact retention.
 
-The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because every successful push to `main` publishes a release.
+The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because every successful non-documentation-only push to `main` publishes a release.
 
 ### Pull-request protection
 

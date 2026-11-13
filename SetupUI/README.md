@@ -28,8 +28,9 @@ version. The EXE metadata and generated application manifest share that version.
 CI supplies one shared version for the build, tests, and release title.
 Distribute the ZIP only through channels covered by your distribution permissions.
 The [GitHub Actions workflow](../.github/workflows/build-release.yml) builds and tests
-the package, then attaches the ZIP and verified checksum to a GitHub release after each successful push
-to `main`; pull requests build and test without publishing. See the
+the package, then attaches the ZIP and verified checksum to a GitHub release after each successful
+non-documentation-only push to `main`; pull requests never publish. Markdown-only
+changes run lint without building, testing, or publishing a package. See the
 [repository release guide](../README.md#github-actions-builds-and-releases).
 Extract **the whole
 ZIP** into a trusted, administrator-controlled folder on the target supported Windows VM,
