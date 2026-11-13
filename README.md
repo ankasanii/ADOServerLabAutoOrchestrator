@@ -57,6 +57,29 @@ weaken your organization's policies.
 
 Client Windows installations are for evaluation or personal use, not production/team hosting or DevOps Proxy. Review the [complete prerequisites](GuestSetup/README.md#prerequisites), including OS lifecycle, IIS, DNS, firewall, and account requirements.
 
+### Setup and service accounts
+
+The setup account is the Windows identity running the elevated EXE or PowerShell
+launcher. It must have local administrator privileges on the VM; domain
+administrator privileges are not required.
+
+| Purpose | Account used |
+|---|---|
+| Installation worker | The account running the elevated launcher. |
+| Automatic reboot/resume task | The same setup account, using the password entered during setup; not `SYSTEM`. Resume requires the original account/SID. |
+| SQL `sysadmin` permission for a fresh SQL installation | The setup account. |
+| SQL Database Engine service for a fresh installation | `NT Service\MSSQLSERVER`. |
+| SQL Server Agent service for a fresh installation | `NT Service\SQLSERVERAGENT`. |
+| Optional smtp4dev startup task | `SYSTEM`. |
+| Azure DevOps service identity | The default in the Microsoft-generated `TfsConfig NewServerBasic` configuration. This project does not explicitly override it or supply a custom service-account password. Verify the generated configuration and installed service/application-pool identities rather than assuming a specific account. |
+
+For example, launching as `VMNAME\labadmin` runs installation and reboot/resume
+under that account, while the SQL services use their separate built-in virtual
+accounts. Windows Task Scheduler stores the resume credential; the password is
+not written to the saved setup state. Setup does not create a new Windows user
+for you. Existing supported SQL installations are preserved, including their
+service accounts.
+
 ## Quick start
 
 Download or clone this repository and keep each component's scripts and modules together in a trusted, administrator-controlled folder.
