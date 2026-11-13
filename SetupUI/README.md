@@ -76,6 +76,14 @@ policy or bypass application-control policy.
 
 ## Use
 
+**Account warning:** company sign-in or Microsoft Entra ID join alone does not
+make the VM AD-domain joined. Use Domain mode only on an AD-domain-joined VM.
+For Workgroup mode, run the UI as an organization-approved local administrator
+(`VMNAME\labadmin`) with a password, not a PIN. Entra ID/AzureAD or domain accounts
+on a non-AD-domain-joined VM are not supported by this workflow. Automatic
+reboot/resume requires password-based Task Scheduler logon. The UI shows these
+warnings before setup; the account restriction remains enforced.
+
 **26H2 RC (preview / lab)** is a separate opt-in release using SQL 2025.
 Stable `25H2` remains the default where supported. The RC shows an amber
 prerelease notice and offers only a disabled "No RC patches published in this
@@ -116,9 +124,11 @@ upgrade existing servers or provide RC-to-final upgrades. See the
    **2022 Update 1** is a separate older lab option with SQL 2022 and its own
    patches 1-4. **2022 Update 2** remains the existing `2022` option with patches
    1-12. Neither option upgrades/downgrades an existing DevOps installation.
-   Choose **Domain / Workgroup** to match existing membership. Domain is the
-   default; a workgroup VM requires explicit Workgroup selection and a local
-   Windows administrator with a password. Domain controllers remain unsupported.
+   **Detected membership** automatically shows Domain for an AD-domain-joined VM
+   or Workgroup for a non-AD-domain-joined VM. Membership cannot be changed in
+   the UI. The detected AD domain is read-only and disabled/empty for a fresh
+   Workgroup setup. A workgroup VM still requires a local Windows administrator
+   with a password. Domain controllers remain unsupported.
    Workgroup's DNS hostname defaults to the VM name; optionally enter an existing
    custom record pointing only to this VM. DNS is not created automatically.
    HTTPS URL/certificate/binding all use the chosen name. Remote clients need
@@ -146,7 +156,9 @@ upgrade existing servers or provide RC-to-final upgrades. See the
 7. For failure, repair the reported issue first. **Resume saved setup** preserves
    the plan/patch/ports and is available only to the original account when the
    task is idle. A completed plan cannot be overwritten.
-   Saved membership and DNS hostname are also preserved. Legacy plans stay Domain.
+   Saved membership, domain/workgroup name, and DNS hostname are also preserved,
+   even if current membership differs; a mismatch is reported rather than
+   rewriting the saved plan. Legacy plans stay Domain.
 
 Closing the UI or monitoring window does not stop the worker. Opening a console
 is **not** proof that setup started or completed; saved state/logs are authoritative.

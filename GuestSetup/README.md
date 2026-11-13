@@ -35,6 +35,15 @@ the old `.ps1` release helper is no longer used.
 | Resume permissions | Task Scheduler password logon and log on as a batch job; do not weaken domain policies. |
 | Licensing | SQL Developer and DevOps evaluation are lab-only; accept applicable terms. No trial extension/bypass. |
 
+**Company/Dev Box accounts:** Microsoft Entra ID join or company sign-in alone
+is not AD-domain membership. Domain mode requires an AD-domain-joined VM.
+Workgroup mode requires an organization-approved local administrator account
+such as `VMNAME\labadmin`, with a password, not a PIN. Entra ID/AzureAD or domain
+accounts on a non-AD-domain-joined VM are not supported by this workflow.
+The same setup identity is used for SQL permissions and password-based
+Task Scheduler reboot/resume; removing the account check does not add support.
+Do not weaken managed-device policies to run setup.
+
 ### Supported OS validation
 
 The CLI, UI and reboot/resume worker use the same OS guard. Setup detects the OS;

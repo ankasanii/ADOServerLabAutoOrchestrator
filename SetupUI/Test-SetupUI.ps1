@@ -89,6 +89,11 @@ if ($errors.Count -or $strings.Count -ne 1 -or $strings[0].Value -cne $unsafe) {
         if ($null -eq $window.Icon -or $window.Icon.Width -ne 256 -or $window.Icon.Height -ne 256) {
             throw 'The window/taskbar icon must use the embedded high-resolution application icon.'
         }
+        $modes = $type.GetField('joinMode', $flags).GetValue($window)
+        $domainControl = $type.GetField('domain', $flags).GetValue($window)
+        if ($modes.IsEnabled -or $modes.SelectedIndex -ne -1 -or -not $domainControl.IsReadOnly) {
+            throw 'Membership must remain unselected and locked before detection, and the domain field must be read-only.'
+        }
         $release = New-Object 'System.Collections.Generic.Dictionary[string,object]'
         $release.Add('Supported', $true); $release.Add('Patches', @()); $release.Add('CanOverrideOs', $false)
         $release.Add('OverrideBlockedReason', 'Fixture hard restriction.')
@@ -106,13 +111,23 @@ if ($errors.Count -or $strings.Count -ne 1 -or $strings[0].Value -cne $unsafe) {
         $choice = [Activator]::CreateInstance($assembly.GetType('AdoServerLabAutoOrchestrator.Choice'), @('2022', 'DevOps 2022 / SQL 2022'))
         $versions = $type.GetField('version', $flags).GetValue($window)
         $versions.Items.Add($choice) | Out-Null; $versions.SelectedIndex = 0
+        $type.GetMethod('UpdateMembership', $flags).Invoke($window, @()) | Out-Null
         $type.GetField('license', $flags).GetValue($window).IsChecked = $true
         $start = $type.GetField('start', $flags).GetValue($window)
-        if ($start.IsEnabled) { throw 'Domain default must not start on a workgroup VM.' }
-        $modes = $type.GetField('joinMode', $flags).GetValue($window)
-        $modes.SelectedIndex = 1
+        if ($modes.SelectedItem.Value -ne 'Workgroup' -or $modes.IsEnabled -or
+            $domainControl.IsEnabled -or $domainControl.Text -ne '' -or -not $domainControl.IsReadOnly) {
+            throw 'A standalone VM must automatically select locked Workgroup mode and disable its empty AD-domain field.'
+        }
+        $notesControl = $type.GetField('notes', $flags).GetValue($window)
+        function Get-NoticeText {
+            return ([Windows.Documents.TextRange]::new($notesControl.ContentStart, $notesControl.ContentEnd)).Text
+        }
+        if ((Get-NoticeText) -notlike '*WARNING - Workgroup account requirements*local administrator*not a PIN*Microsoft Entra ID/AzureAD*password-based Task Scheduler logon*' -or
+            (Get-NoticeText) -like '*WARNING - Domain membership required*') {
+            throw 'Workgroup mode must warn about unsupported company accounts and password-based resume before setup starts.'
+        }
         $dns = $type.GetField('dnsHostName', $flags).GetValue($window)
-        if (-not $start.IsEnabled -or $dns.Text -ne 'labserver' -or -not $dns.IsEnabled) { throw 'Explicit Workgroup mode must use an editable VM hostname on a standalone server.' }
+        if (-not $start.IsEnabled -or $dns.Text -ne 'labserver' -or -not $dns.IsEnabled) { throw 'Detected Workgroup mode must use an editable VM hostname on a standalone server.' }
         $dns.Text = 'devops.lab.example.com'
         $type.GetMethod('UpdateOptions', $flags).Invoke($window, @()) | Out-Null
         if ($dns.Text -ne 'devops.lab.example.com') { throw 'Refreshing options must preserve custom DNS input.' }
@@ -120,16 +135,20 @@ if ($errors.Count -or $strings.Count -ne 1 -or $strings[0].Value -cne $unsafe) {
         $type.GetMethod('UpdateButtons', $flags).Invoke($window, @()) | Out-Null
         if ($start.IsEnabled) { throw 'Workgroup mode cannot start on an AD-joined VM.' }
         $type.GetField('detectedDomain', $flags).SetValue($window, 'ak.com')
-        $modes.SelectedIndex = 0
-        if (-not $start.IsEnabled -or $dns.IsEnabled -or $dns.Text -ne 'labserver.ak.com') { throw 'Domain mode must preserve the joined-domain hostname.' }
+        $type.GetMethod('UpdateMembership', $flags).Invoke($window, @()) | Out-Null
+        if ($modes.SelectedItem.Value -ne 'Domain' -or $modes.IsEnabled -or -not $start.IsEnabled -or
+            $dns.IsEnabled -or $dns.Text -ne 'labserver.ak.com' -or
+            $domainControl.Text -ne 'ak.com' -or -not $domainControl.IsReadOnly) {
+            throw 'An AD-joined VM must automatically select locked Domain mode and show the detected domain/hostname without allowing edits.'
+        }
+        if ((Get-NoticeText) -like '*WARNING - Workgroup account requirements*' -or
+            (Get-NoticeText) -like '*WARNING - Domain membership required*') {
+            throw 'Account/membership warnings must clear when valid Domain mode is selected.'
+        }
         $type.GetField('clientOs', $flags).SetValue($window, $true)
         $type.GetField('legacySsms', $flags).SetValue($window, $true)
         $type.GetMethod('UpdateOptions', $flags).Invoke($window, @()) | Out-Null
         $emailControl = $type.GetField('email', $flags).GetValue($window)
-        $notesControl = $type.GetField('notes', $flags).GetValue($window)
-        function Get-NoticeText {
-            return ([Windows.Documents.TextRange]::new($notesControl.ContentStart, $notesControl.ContentEnd)).Text
-        }
         if (-not $start.IsEnabled -or $emailControl.IsEnabled -or $emailControl.SelectedIndex -ne 1 -or
             (Get-NoticeText) -notlike '*SSMS 20.2.1*' -or (Get-NoticeText) -notlike '*evaluation/personal use only*') {
             throw 'Client Windows must show lab/legacy SSMS restrictions and disable unsupported Windows 10 SMTP capture.'
@@ -240,8 +259,8 @@ Get-Content -LiteralPath (Join-Path $PSScriptRoot "$Mode.json") -Raw
             Releases = @(@{ Version = '2022'; SqlYear = '2022'; Supported = $true; CanOverrideOs = $false; Patches = @() })
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $pollFixture 'Metadata.json')
         $data = @{
-            HasState = $true; Status = 'Completed'; Summary = 'Fixture completed setup'; CanResume = $false
-            Progress = 100; Logs = 'FINAL_LOG_OUTPUT'; Error = ''; Version = '2022'; Components = 'Both'
+            HasState = $false; Status = 'NotStarted'; Summary = 'Fixture fresh setup'; CanResume = $false
+            Progress = 0; Logs = ''; Error = ''; Version = '2022'; Components = 'Both'
             JoinMode = 'Workgroup'; PatchSelection = 'Skip'; Email = 'None'; DomainName = 'WORKGROUP'
             DnsHostName = 'labserver'; AllowUnsupportedOs = $false
         }
@@ -280,6 +299,37 @@ Get-Content -LiteralPath (Join-Path $PSScriptRoot "$Mode.json") -Raw
             $type.GetField('snapshotReady', $flags).GetValue($window) -and
                 -not $type.GetField('refreshing', $flags).GetValue($window)
         }
+        $membershipControl = $type.GetField('joinMode', $flags).GetValue($window)
+        $domainControl = $type.GetField('domain', $flags).GetValue($window)
+        $dnsControl = $type.GetField('dnsHostName', $flags).GetValue($window)
+        if ($membershipControl.SelectedItem.Value -ne 'Workgroup' -or $membershipControl.IsEnabled -or
+            $domainControl.IsEnabled -or $domainControl.Text -ne '' -or -not $domainControl.IsReadOnly -or
+            $dnsControl.Text -ne 'labserver' -or -not $dnsControl.IsEnabled) {
+            throw 'Live metadata must automatically select Workgroup on a standalone VM without asking for an AD domain.'
+        }
+        $dnsControl.Text = 'devops.lab.example.com'
+        Invoke-ManualRefresh
+        if ($dnsControl.Text -ne 'devops.lab.example.com') { throw 'Refreshing a fresh setup must preserve custom Workgroup DNS input.' }
+        $data.HasState = $true; $data.Status = 'Completed'; $data.Progress = 100; $data.Logs = 'FINAL_LOG_OUTPUT'
+        $data.DnsHostName = 'devops.lab.example.com'
+        $data | ConvertTo-Json | Set-Content -LiteralPath $snapshotPath
+        Invoke-ManualRefresh
+        if ($membershipControl.SelectedItem.Value -ne 'Workgroup' -or $membershipControl.IsEnabled -or
+            $domainControl.Text -ne 'WORKGROUP' -or $dnsControl.Text -ne 'devops.lab.example.com' -or $dnsControl.IsEnabled) {
+            throw 'A saved Workgroup plan must preserve its membership and custom hostname and lock the fields.'
+        }
+        $data.JoinMode = 'Domain'; $data.DomainName = 'ak.com'; $data.DnsHostName = 'labserver.ak.com'
+        $data | ConvertTo-Json | Set-Content -LiteralPath $snapshotPath
+        Invoke-ManualRefresh
+        $type.GetMethod('UpdateMembership', $flags).Invoke($window, @()) | Out-Null
+        if ($membershipControl.SelectedItem.Value -ne 'Domain' -or $membershipControl.IsEnabled -or
+            $domainControl.Text -ne 'ak.com' -or $dnsControl.Text -ne 'labserver.ak.com' -or
+            $type.GetField('errors', $flags).GetValue($window).Text -notlike '*Saved setup membership does not match this VM*') {
+            throw 'A mismatched saved Domain plan must remain unchanged and show an explicit membership error.'
+        }
+        $data.JoinMode = 'Workgroup'; $data.DomainName = 'WORKGROUP'; $data.DnsHostName = 'devops.lab.example.com'
+        $data | ConvertTo-Json | Set-Content -LiteralPath $snapshotPath
+        Invoke-ManualRefresh
         if ($pollTimer.IsEnabled -or -not $refreshButton.IsEnabled -or
             $refreshNote.Text -notlike '*Setup completed*Automatic refresh stopped*' -or
             $type.GetField('logs', $flags).GetValue($window).Text -ne 'FINAL_LOG_OUTPUT') {

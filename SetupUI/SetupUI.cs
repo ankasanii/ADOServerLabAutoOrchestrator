@@ -51,8 +51,9 @@ namespace AdoServerLabAutoOrchestrator
         private readonly ComboBox components = new ComboBox();
         private readonly ComboBox patch = new ComboBox();
         private readonly ComboBox email = new ComboBox();
-        private readonly ComboBox joinMode = new ComboBox();
-        private readonly TextBox domain = new TextBox();
+        private readonly ComboBox joinMode = new ComboBox { IsEnabled = false,
+            ToolTip = "Detected from this VM, or preserved from the saved setup. The UI does not change domain membership." };
+        private readonly TextBox domain = new TextBox { IsReadOnly = true };
         private readonly TextBox dnsHostName = new TextBox();
         private readonly TextBox instance = new TextBox { Text = "localhost" };
         private readonly CheckBox license = new CheckBox { Content = "I accept the Microsoft Developer/evaluation license terms." };
@@ -106,7 +107,7 @@ namespace AdoServerLabAutoOrchestrator
             AddField(form, 1, "Components", components);
             AddField(form, 2, "DevOps patch", patch);
             AddField(form, 3, "Email", email);
-            AddField(form, 4, "Membership mode", joinMode);
+            AddField(form, 4, "Detected membership", joinMode);
             AddField(form, 5, "Existing AD domain", domain);
             AddField(form, 6, "DNS hostname", dnsHostName);
             AddField(form, 7, "Local SQL instance", instance);
@@ -117,7 +118,6 @@ namespace AdoServerLabAutoOrchestrator
             panel.Children.Add(osChoices);
             joinMode.Items.Add(new Choice("Domain", "Domain (already joined)"));
             joinMode.Items.Add(new Choice("Workgroup", "Workgroup (local Windows account)"));
-            joinMode.SelectedIndex = 0;
             components.Items.Add(new Choice("Both", "SQL + Azure DevOps"));
             components.Items.Add(new Choice("SqlOnly", "SQL only (includes SSMS)"));
             components.Items.Add(new Choice("DevOpsOnly", "Azure DevOps only (existing local SQL)"));
@@ -144,7 +144,6 @@ namespace AdoServerLabAutoOrchestrator
             Grid.SetRow(logs, 1); root.Children.Add(logs); Content = root;
             version.SelectionChanged += delegate { UpdateOptions(); };
             components.SelectionChanged += delegate { UpdateOptions(); };
-            joinMode.SelectionChanged += delegate { UpdateMembership(); };
             patch.SelectionChanged += delegate { UpdateNotes(); };
             license.Checked += delegate { UpdateButtons(); };
             license.Unchecked += delegate { UpdateButtons(); };
@@ -247,7 +246,6 @@ namespace AdoServerLabAutoOrchestrator
                 joinedDomain = Flag(data, "JoinedDomain");
                 detectedDomain = Text(data, "Domain");
                 computerName = Text(data, "ComputerName");
-                domain.Text = joinedDomain ? detectedDomain : "";
                 machine.Text = Text(data, "Os") + " | " + Text(data, "Account");
                 var items = data["Releases"] as IEnumerable;
                 if (items == null) throw new InvalidDataException("Missing release metadata.");
@@ -321,8 +319,13 @@ namespace AdoServerLabAutoOrchestrator
                 AddNotice("CAUTION - Windows 10 limitations", "Windows 10 uses archived SSMS 20.2.1, not SSMS 22; review security requirements. SMTP capture is unavailable because its .NET 10 runtime does not support every Windows 10 lab version.", NoticeWarning);
             if (clientOs)
                 AddNotice("INFO - Client Windows lab", "Client Windows: evaluation/personal use only; no DevOps Proxy. Check Windows lifecycle/ESU requirements. IIS prerequisites can require a reboot.", NoticeInfo);
+            if (Value(joinMode) == "Domain" && !joinedDomain)
+                AddNotice("WARNING - Domain membership required", "Domain mode requires an AD-domain-joined VM. Microsoft Entra ID join or company sign-in alone is not sufficient. For a non-AD-domain-joined VM, select Workgroup and use an organization-approved local administrator account with a password, not a PIN.", NoticeWarning);
             if (Value(joinMode) == "Workgroup")
-                AddNotice("INFO - Workgroup prerequisites", "Workgroup: a local account and trusted Private network are required. Custom DNS must already point to this VM; remote clients must trust the certificate.", NoticeInfo);
+            {
+                AddNotice("WARNING - Workgroup account requirements", "Run setup as an organization-approved local administrator (VMNAME\\username) with a password, not a PIN. Microsoft Entra ID/AzureAD or domain accounts on a non-AD-domain-joined VM are not supported by this workflow. Automatic reboot/resume requires password-based Task Scheduler logon. Company sign-in alone does not make the VM AD-domain joined.", NoticeWarning);
+                AddNotice("INFO - Workgroup prerequisites", "A trusted Private network is required. Custom DNS must already point to this VM; remote clients must trust the certificate.", NoticeInfo);
+            }
             if (found)
             {
                 foreach (Dictionary<string, object> item in (IEnumerable)release["Patches"])
@@ -347,8 +350,13 @@ namespace AdoServerLabAutoOrchestrator
         private void UpdateMembership()
         {
             if (!metadataReady) return;
-            dnsHostName.Text = Value(joinMode) == "Domain" ?
-                (computerName + "." + detectedDomain).ToLowerInvariant() : computerName.ToLowerInvariant();
+            if (!hasState)
+            {
+                SelectChoice(joinMode, joinedDomain ? "Domain" : "Workgroup");
+                domain.Text = joinedDomain ? detectedDomain : "";
+                dnsHostName.Text = joinedDomain ?
+                    (computerName + "." + detectedDomain).ToLowerInvariant() : computerName.ToLowerInvariant();
+            }
             UpdateNotes(); UpdateButtons();
         }
 
@@ -370,8 +378,9 @@ namespace AdoServerLabAutoOrchestrator
             start.IsEnabled = metadataReady && serverAllowed && membershipMatches && snapshotReady && !hasState && osAllowed &&
                 license.IsChecked == true && !ConsoleActive();
             resume.IsEnabled = snapshotReady && canResume && !ConsoleActive();
-            version.IsEnabled = components.IsEnabled = joinMode.IsEnabled = license.IsEnabled = !hasState && !ConsoleActive();
-            domain.IsEnabled = !hasState && !ConsoleActive() && Value(joinMode) == "Domain";
+            version.IsEnabled = components.IsEnabled = license.IsEnabled = !hasState && !ConsoleActive();
+            joinMode.IsEnabled = false;
+            domain.IsEnabled = metadataReady && !hasState && !ConsoleActive() && Value(joinMode) == "Domain";
             dnsHostName.IsEnabled = !hasState && !ConsoleActive() && Value(joinMode) == "Workgroup";
             strictOs.IsEnabled = !hasState && !ConsoleActive();
             unsupportedOs.IsEnabled = !hasState && !ConsoleActive() && canOverrideOs;
@@ -404,7 +413,7 @@ namespace AdoServerLabAutoOrchestrator
                 errors.Text = Text(data, "Error");
                 if (metadataReady && !serverAllowed) errors.Text += "\nA supported Windows Server or Windows 10/11 lab VM (not a domain controller) is required.";
                 else if (metadataReady && (Value(joinMode) == "Domain" ? !joinedDomain : joinedDomain))
-                    errors.Text += "\nChoose the mode matching this VM's existing membership; the UI does not join/unjoin domains.";
+                    errors.Text += "\nSaved setup membership does not match this VM. Saved settings are preserved; the UI does not join/unjoin domains.";
                 logs.Text = Text(data, "Logs");
                 logs.ScrollToEnd();
                 UpdateOptions();

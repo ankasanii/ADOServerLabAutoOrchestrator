@@ -87,7 +87,7 @@ if (Test-Path -LiteralPath $statePath) {
 }
 $computer = Get-CimInstance Win32_ComputerSystem
 if ($computer.DomainRole -ge 4) { throw 'Domain controllers are not supported.' }
-if ($JoinMode -eq 'Domain' -and -not $computer.PartOfDomain) { throw 'Domain mode requires an already domain-joined VM. Join/reboot first, or explicitly select -JoinMode Workgroup.' }
+if ($JoinMode -eq 'Domain' -and -not $computer.PartOfDomain) { throw 'Domain mode requires an already AD-domain-joined VM. Microsoft Entra ID join or company sign-in alone is not sufficient. For a non-AD-domain-joined VM, select -JoinMode Workgroup and run as an organization-approved local administrator with a password, not a PIN. This script does not change domain membership.' }
 if ($JoinMode -eq 'Workgroup' -and $computer.PartOfDomain) { throw 'Workgroup mode requires a non-domain-joined VM. This script does not change domain membership.' }
 $os = Get-CimInstance Win32_OperatingSystem
 if (-not $Version) { $Version = Read-SetupChoice -Prompt 'DevOps version: 2020, 2022.1 (Update 1), 2022 (Update 2), 25H2 or 26H2-RC' -Choices @('2020', '2022.1', '2022', '25H2', '26H2-RC') -Default '25H2' }
