@@ -20,6 +20,7 @@ The project provides prerequisite checks, product installation and configuration
 - Select release-specific DevOps patches from the included catalog.
 - Resume the saved installation plan through Task Scheduler after required reboots.
 - Monitor setup through the desktop UI or a read-only PowerShell dashboard.
+- Export a local diagnostic report with best-effort redaction and an editable preview before saving.
 - Optionally capture test email locally on supported operating systems.
 
 ## Release options
@@ -60,7 +61,7 @@ From the repository root, build the launcher on Windows with the .NET Framework 
 .\SetupUI\Build-SetupUI.ps1
 ```
 
-The build produces `SetupUI\dist\AdoServerLabAutoOrchestrator.exe` and `SetupUI\AdoServerLabAutoOrchestrator.zip`.
+The build produces `SetupUI\dist\AdoServerLabAutoOrchestrator.exe`, `SetupUI\AdoServerLabAutoOrchestrator.zip`, and the matching `.zip.sha256` checksum file.
 
 1. Extract the **whole ZIP** on the target VM, keeping `SetupBridge.ps1` and the bundled `GuestSetup` folder beside the EXE.
 2. Launch `AdoServerLabAutoOrchestrator.exe` and approve administrator elevation.
@@ -110,6 +111,12 @@ Saved state, progress, and worker logs are under `C:\ProgramData\AdoServerLabAut
 
 See [monitoring and logs](GuestSetup/README.md#monitor-and-logs) and [completion and failures](GuestSetup/README.md#completion-and-failures) for troubleshooting.
 
+### Export diagnostics
+
+Click **Export diagnostics** in the UI to generate a local text report containing the application version, setup status, saved error, and the current log tails selected by the existing monitor. No raw state file, full log archive, credentials, or installer payloads are copied. The exporter attempts to redact credential-like assignments, URL credentials/signatures, email/IP addresses, SIDs, user-profile paths, and known saved machine/domain/account identities.
+
+**Redaction is best-effort, not a guarantee.** Inspect and edit the preview to remove any remaining sensitive information before saving or sharing it. Canceling does not save a report. Nothing is uploaded automatically, and exporting does not install software or change saved setup state.
+
 ## Development and validation
 
 With live setup idle, run the offline guest checks from the repository root:
@@ -135,16 +142,34 @@ The [build and release workflow](.github/workflows/build-release.yml) runs on pu
 1. Run the offline guest tests.
 2. Build the UI and distribution ZIP.
 3. Run the UI tests in STA mode.
-4. Upload the tested ZIP as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
-5. For a successful push to `main` only, create a GitHub release and attach `AdoServerLabAutoOrchestrator.zip`.
+4. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
+5. For a successful push to `main` only, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
 
 Each release uses a unique `main-<run-id>-<run-attempt>` tag pointing to the built commit. Pull requests never publish releases. Failed builds or tests block publication.
 
-Release titles use `AdoServerLabAutoOrchestrator-YYYY.MM.DD.<run-number>`, for example `AdoServerLabAutoOrchestrator-2026.11.12.2`. The date is the UTC publication date; the final number is the workflow run number, not a daily build count. Reruns keep the run number, while their tags remain unique.
+Release titles use `AdoServerLabAutoOrchestrator-YYYY.MM.DD.<run-number>`, for example `AdoServerLabAutoOrchestrator-2026.11.12.2`. The date is captured once in UTC before the build; the final number is the workflow run number, not a daily build count. The same version is embedded in the EXE product/file/assembly metadata and application manifest, even if publication happens after midnight. Reruns keep the run number, while their tags remain unique.
+
+Local builds default to the UTC date with revision `0`. To stamp a specific version, use `.\SetupUI\Build-SetupUI.ps1 -Version 2026.11.13.5`. Each of the four numeric components must be between 0 and 65534.
 
 Push this workflow to `main` to start the first build. Monitor it in the repository's **Actions** tab, then download the ZIP from **Releases**. Release assets remain available independently of workflow artifact retention.
 
 The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because every successful push to `main` publishes a release.
+
+### Pull-request protection
+
+This repository's `main` branch requires a pull request, an up-to-date branch, and the successful **Build and test Windows package** check from GitHub Actions. Protection applies to administrators; force-pushes and branch deletion are blocked. No approving review is required, allowing a solo maintainer to merge their own passing PR. The release job is not a required PR check because it only runs after a merge/push to `main`. Forks must configure these GitHub settings separately.
+
+### Verify a release download
+
+Download both release assets into the same folder and run:
+
+```powershell
+$expected = (Get-Content .\AdoServerLabAutoOrchestrator.zip.sha256 -Raw).Trim().Split(' ')[0]
+$actual = (Get-FileHash .\AdoServerLabAutoOrchestrator.zip -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'ZIP checksum mismatch. Do not extract or run this download.' }
+```
+
+The checksum detects mismatched bytes; it is not a digital signature or proof of publisher identity. The application remains unsigned.
 
 ## Scope and distribution notes
 

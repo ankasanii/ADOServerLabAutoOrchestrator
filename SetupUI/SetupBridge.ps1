@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([ValidateSet('Metadata', 'Snapshot')][string]$Mode)
+param([ValidateSet('Metadata', 'Snapshot', 'Diagnostics')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
@@ -44,6 +44,58 @@ function Get-UiSnapshot {
     [pscustomobject]$result
 }
 
+function ConvertTo-UiDiagnosticText {
+    param([string]$Text, [string[]]$SensitiveValues)
+    $Text = [regex]::Replace($Text, '(?is)(<(?:password|token|secret|connectionstring)\b[^>]*>).*?(</(?:password|token|secret|connectionstring)>)', '$1[REDACTED]$2')
+    $Text = [regex]::Replace($Text, '(?im)(\b(?:[\w-]*(?:password|token|secret)|pwd|api[_-]?key|authorization|connection[ _-]?string)["'']?[ \t]*(?:[:=][ \t]*|[ \t]+))[^\r\n]*', '$1[REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)(https?://)[^/\s@]+@', '$1[REDACTED]@')
+    $Text = [regex]::Replace($Text, '(?i)([?&](?:sig|code)=)[^&\s]+', '$1[REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', '[EMAIL]')
+    $Text = [regex]::Replace($Text, '\bS-\d-\d+(?:-\d+)+\b', '[SID]')
+    $Text = [regex]::Replace($Text, '\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b', '[IP]')
+    $Text = [regex]::Replace($Text, '(?i)(?<![\w:])(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.%]+(?![\w:])', [Text.RegularExpressions.MatchEvaluator]{
+        param($match)
+        $address = $null
+        if ([Net.IPAddress]::TryParse($match.Value, [ref]$address) -and
+            $address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6) { return '[IP]' }
+        return $match.Value
+    })
+    $Text = [regex]::Replace($Text, '(?i)[A-Z]:\\Users\\[^\\\r\n]+', '[USERPROFILE]')
+    foreach ($value in @($SensitiveValues | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_) -and $_ -notin @('WORKGROUP', 'localhost', '.')
+    } | Sort-Object -Unique | Sort-Object Length -Descending)) {
+        $pattern = '(?i)(?<![\w-])' + [regex]::Escape($value) + '(?![\w-])'
+        $Text = [regex]::Replace($Text, $pattern, '[IDENTITY]')
+    }
+    return $Text
+}
+
+function Get-UiDiagnostics {
+    $snapshot = Get-UiSnapshot
+    $path = Join-Path $env:ProgramData 'AdoServerLabAutoOrchestrator\state.json'
+    $sensitive = @($env:USERPROFILE, $env:COMPUTERNAME, $env:USERDOMAIN)
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        $plan = Read-SetupState -Path $path
+        $sensitive += @($plan.SetupAccount, $plan.SetupSid, $plan.ComputerName, $plan.DomainName, (Get-SetupHostName -Plan $plan))
+    }
+    $report = @(
+        'AdoServerLabAutoOrchestrator diagnostics'
+        "Generated UTC: $([DateTime]::UtcNow.ToString('o'))"
+        'Best-effort redaction only. Review and remove sensitive information before sharing.'
+        'Nothing is uploaded. Raw state files, full log files and installer payloads are not attached.'
+        ''
+        "Status: $($snapshot.Status)"
+        "Progress: $($snapshot.Progress)%"
+        $snapshot.Summary
+        ''
+        "Saved error: $($snapshot.Error)"
+        ''
+        'Selected current log tails:'
+        $snapshot.Logs
+    ) -join "`r`n"
+    [pscustomobject]@{ Report = ConvertTo-UiDiagnosticText -Text $report -SensitiveValues $sensitive }
+}
+
 if ($Mode -eq 'Metadata') {
     $computer = Get-CimInstance Win32_ComputerSystem
     $os = Get-CimInstance Win32_OperatingSystem
@@ -78,4 +130,5 @@ if ($Mode -eq 'Metadata') {
         Os = $os.Caption; Releases = $releases
     } | ConvertTo-Json -Depth 6 -Compress
 }
+elseif ($Mode -eq 'Diagnostics') { Get-UiDiagnostics | ConvertTo-Json -Depth 4 -Compress }
 else { Get-UiSnapshot | ConvertTo-Json -Depth 4 -Compress }

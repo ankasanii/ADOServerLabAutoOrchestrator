@@ -14,6 +14,8 @@ jobs:
     name: Build and test Windows package
     runs-on: windows-2022
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: powershell
@@ -26,19 +28,33 @@ jobs:
       - name: Run offline guest tests
         run: .\GuestSetup\Setup-Server.ps1 -ValidateOnly
 
-      - name: Build UI and ZIP
-        run: .\SetupUI\Build-SetupUI.ps1
+      - name: Determine build version
+        id: version
+        env:
+          BUILD_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $version = [DateTime]::UtcNow.ToString('yyyy.MM.dd') + '.' + $env:BUILD_RUN_NUMBER
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Build UI, ZIP, and checksum
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: .\SetupUI\Build-SetupUI.ps1 -Version $env:BUILD_VERSION
 
       - name: Test UI in Windows PowerShell 5.1 STA
+        env:
+          EXPECTED_BUILD_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          powershell.exe -NoProfile -NonInteractive -STA -File .\SetupUI\Test-SetupUI.ps1
+          powershell.exe -NoProfile -NonInteractive -STA -File .\SetupUI\Test-SetupUI.ps1 -ExpectedVersion $env:EXPECTED_BUILD_VERSION
           if ($LASTEXITCODE -ne 0) { throw "UI tests failed: $LASTEXITCODE" }
 
       - name: Upload tested ZIP
         uses: actions/upload-artifact@v4
         with:
           name: AdoServerLabAutoOrchestrator
-          path: SetupUI\AdoServerLabAutoOrchestrator.zip
+          path: |
+            SetupUI\AdoServerLabAutoOrchestrator.zip
+            SetupUI\AdoServerLabAutoOrchestrator.zip.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -62,10 +78,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: main-${{ github.run_id }}-${{ github.run_attempt }}
-          RELEASE_RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          $releaseTitle = "AdoServerLabAutoOrchestrator-$([DateTime]::UtcNow.ToString('yyyy.MM.dd')).$env:RELEASE_RUN_NUMBER"
+          $archive = '.\AdoServerLabAutoOrchestrator.zip'
+          $checksum = (Get-Content -LiteralPath "$archive.sha256" -Raw).Trim()
+          if ($checksum -notmatch '^([0-9a-f]{64})  AdoServerLabAutoOrchestrator\.zip$') { throw 'Invalid checksum file format.' }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'Release ZIP checksum mismatch.' }
+          $releaseTitle = "AdoServerLabAutoOrchestrator-$env:RELEASE_VERSION"
           $notes = "Automated lab build from commit $env:RELEASE_COMMIT. Extract the whole AdoServerLabAutoOrchestrator.zip before running AdoServerLabAutoOrchestrator.exe. The application is unsigned; review the repository documentation and distribution requirements before use."
-          gh release create "$env:RELEASE_TAG" ".\AdoServerLabAutoOrchestrator.zip" --repo "$env:GH_REPO" --target "$env:RELEASE_COMMIT" --title "$releaseTitle" --notes "$notes"
+          gh release create "$env:RELEASE_TAG" "$archive" "$archive.sha256" --repo "$env:GH_REPO" --target "$env:RELEASE_COMMIT" --title "$releaseTitle" --notes "$notes"
           if ($LASTEXITCODE -ne 0) { throw "Release publication failed: $LASTEXITCODE" }
