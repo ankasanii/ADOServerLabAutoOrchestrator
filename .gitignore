@@ -1,0 +1,17 @@
+*.log
+*.iso
+*.exe
+*.zip
+*.pfx
+*.pem
+*.key
+*.parameters.json
+lab.settings.local.json
+state.json
+state.json.tmp
+progress.log
+Logs/
+SqlMedia/
+infra/main.json
+infra/configure.json
+SetupUI/dist/

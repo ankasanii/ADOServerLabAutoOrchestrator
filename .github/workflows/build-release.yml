@@ -1,0 +1,71 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test Windows package
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run offline guest tests
+        run: .\GuestSetup\Setup-Server.ps1 -ValidateOnly
+
+      - name: Build UI and ZIP
+        run: .\SetupUI\Build-SetupUI.ps1
+
+      - name: Test UI in Windows PowerShell 5.1 STA
+        run: |
+          powershell.exe -NoProfile -NonInteractive -STA -File .\SetupUI\Test-SetupUI.ps1
+          if ($LASTEXITCODE -ne 0) { throw "UI tests failed: $LASTEXITCODE" }
+
+      - name: Upload tested ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: AdoServerLabAutoOrchestrator
+          path: SetupUI\AdoServerLabAutoOrchestrator.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: AdoServerLabAutoOrchestrator
+
+      - name: Create release and attach ZIP
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: main-${{ github.run_id }}-${{ github.run_attempt }}
+          RELEASE_RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          $releaseTitle = "AdoServerLabAutoOrchestrator-$([DateTime]::UtcNow.ToString('yyyy.MM.dd')).$env:RELEASE_RUN_NUMBER"
+          $notes = "Automated lab build from commit $env:RELEASE_COMMIT. Extract the whole AdoServerLabAutoOrchestrator.zip before running AdoServerLabAutoOrchestrator.exe. The application is unsigned; review the repository documentation and distribution requirements before use."
+          gh release create "$env:RELEASE_TAG" ".\AdoServerLabAutoOrchestrator.zip" --repo "$env:GH_REPO" --target "$env:RELEASE_COMMIT" --title "$releaseTitle" --notes "$notes"
+          if ($LASTEXITCODE -ne 0) { throw "Release publication failed: $LASTEXITCODE" }
