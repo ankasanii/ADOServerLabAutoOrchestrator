@@ -262,8 +262,10 @@ function Test-GuestSetupOffline {
         }
         $plan.DnsHostName = 'devops.lab.example.com'
         Assert-SetupPlan -Plan $plan
-        $plan.SetupAccount = 'AK\labadmin'
-        Assert-MembershipRejection { Assert-SetupPlan -Plan $plan } '*local Windows account*'
+        foreach ($unsupportedAccount in @('AK\labadmin', 'AzureAD\labadmin')) {
+            $plan.SetupAccount = $unsupportedAccount
+            Assert-MembershipRejection { Assert-SetupPlan -Plan $plan } '*local Windows account*Microsoft Entra ID/AzureAD*password-based Task Scheduler logon*'
+        }
         $plan.SetupAccount = 'labserver\labadmin'
         $dnsAddress = '192.0.2.10'
         $networkCategory = 'Private'

@@ -84,7 +84,7 @@ function Assert-SetupPlan {
             throw 'Domain mode preserves the computer joined-domain hostname; custom DNS is supported in Workgroup mode only.'
         }
         if ($mode -eq 'Workgroup' -and $Plan.SetupAccount -notlike "$($Plan.ComputerName)\*") {
-            throw 'Workgroup setup requires a local Windows account on this VM.'
+            throw 'Workgroup setup requires a local Windows account on this VM. Run setup as an organization-approved local administrator (VMNAME\username) with a password, not a PIN. Microsoft Entra ID/AzureAD or domain accounts on a non-AD-domain-joined VM are not supported by this workflow. Automatic reboot/resume requires password-based Task Scheduler logon. Use Domain mode only on an AD-domain-joined VM.'
         }
     }
     $localServer = '(?:localhost|\.|' + [regex]::Escape($Plan.ComputerName) + ')'

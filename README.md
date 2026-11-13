@@ -16,7 +16,7 @@ The project provides prerequisite checks, product installation and configuration
 ### Key capabilities
 
 - Install SQL only, Azure DevOps Server only, or both.
-- Use an existing domain membership or explicitly select Workgroup mode.
+- Use existing domain membership: the UI detects it automatically; the CLI offers explicit Workgroup mode.
 - Select release-specific DevOps patches from the included catalog.
 - Resume the saved installation plan through Task Scheduler after required reboots.
 - Monitor setup through the desktop UI or a read-only PowerShell dashboard.
@@ -47,6 +47,14 @@ Operating-system support depends on the selected release. See the [supported OS 
 - Outbound HTTPS access to the required Microsoft, Visual Studio Installer, and GitHub endpoints.
 - Acceptance of the applicable Microsoft Developer/evaluation licenses.
 
+**Company/Dev Box account warning:** Microsoft Entra ID join or company sign-in
+alone does not satisfy Domain mode's AD-domain membership requirement. Workgroup
+mode requires an organization-approved local administrator account such as
+`VMNAME\labadmin`, with a password, not a PIN. Entra ID/AzureAD or domain accounts
+on a non-AD-domain-joined VM are not supported by this workflow. Reboot/resume
+uses password-based Task Scheduler logon; do not bypass the account check or
+weaken your organization's policies.
+
 Client Windows installations are for evaluation or personal use, not production/team hosting or DevOps Proxy. Review the [complete prerequisites](GuestSetup/README.md#prerequisites), including OS lifecycle, IIS, DNS, firewall, and account requirements.
 
 ## Quick start
@@ -65,7 +73,7 @@ The build produces `SetupUI\dist\AdoServerLabAutoOrchestrator.exe`, `SetupUI\Ado
 
 1. Extract the **whole ZIP** on the target VM, keeping `SetupBridge.ps1` and the bundled `GuestSetup` folder beside the EXE.
 2. Launch `AdoServerLabAutoOrchestrator.exe` and approve administrator elevation.
-3. Select the release, components, membership mode, and optional features.
+3. Select the release, components, and optional features. Membership is detected automatically and cannot be changed in the UI; the detected AD domain is read-only.
 4. Review the warnings and license terms, then start installation.
 5. Enter the original setup account's password in the masked PowerShell console when prompted.
 
@@ -119,6 +127,23 @@ Click **Export diagnostics** in the UI to generate a local text report containin
 
 ## Development and validation
 
+Run workflow and PowerShell lint from the repository root:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -File .\.github\Test-Lint.ps1
+```
+
+The [lint runner](.github/Test-Lint.ps1) downloads actionlint 1.7.12 and
+PSScriptAnalyzer 1.25.0 from their official GitHub releases, verifies pinned SHA-256
+hashes, and removes its temporary tools afterward. It requires internet access,
+Git, and Windows PowerShell 5.1; no modules are installed globally.
+It validates workflows and analyzes tracked and new non-ignored PowerShell source
+files, excluding ignored build output. It does not execute setup or install products.
+The [PowerShell rules](.github/PSScriptAnalyzerSettings.psd1) focus on correctness,
+credential-handling mistakes, and Windows PowerShell 5.1 syntax compatibility,
+rather than a repository-wide style rewrite. Any selected diagnostic or analyzer
+error fails the check. Update tool versions and their pinned hashes together.
+
 With live setup idle, run the offline guest checks from the repository root:
 
 ```powershell
@@ -139,13 +164,14 @@ The guest module-isolation checks normalize the deployed fixture directory to it
 
 The [build and release workflow](.github/workflows/build-release.yml) runs on pushes to `main` and pull requests targeting `main`, using a Windows runner and Windows PowerShell 5.1.
 
-1. Run the offline guest tests.
-2. Build the UI and distribution ZIP.
-3. Run the UI tests in STA mode.
-4. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
-5. For a successful push to `main` only, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
+1. Lint workflows and PowerShell source; failures block the existing required build check.
+2. Run the offline guest tests.
+3. Build the UI and distribution ZIP.
+4. Run the UI tests in STA mode.
+5. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
+6. For a successful push to `main` only, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
 
-Each release uses a unique `main-<run-id>-<run-attempt>` tag pointing to the built commit. Pull requests never publish releases. Failed builds or tests block publication.
+Each release uses a unique `main-<run-id>-<run-attempt>` tag pointing to the built commit. Pull requests never publish releases. Failed lint checks, builds, or tests block publication.
 
 Release titles use `AdoServerLabAutoOrchestrator-YYYY.MM.DD.<run-number>`, for example `AdoServerLabAutoOrchestrator-2026.11.12.2`. The date is captured once in UTC before the build; the final number is the workflow run number, not a daily build count. The same version is embedded in the EXE product/file/assembly metadata and application manifest, even if publication happens after midnight. Reruns keep the run number, while their tags remain unique.
 

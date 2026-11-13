@@ -25,6 +25,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Lint workflows and PowerShell
+        run: .\.github\Test-Lint.ps1
+
       - name: Run offline guest tests
         run: .\GuestSetup\Setup-Server.ps1 -ValidateOnly
 
