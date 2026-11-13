@@ -70,11 +70,12 @@ namespace AdoServerLabAutoOrchestrator
         private readonly Button start = new Button { Content = "Start installation" };
         private readonly Button resume = new Button { Content = "Resume saved setup" };
         private readonly Button refresh = new Button { Content = "Refresh" };
+        private readonly Button export = new Button { Content = "Export diagnostics" };
         private readonly TextBlock refreshNote = new TextBlock { Text = AutoRefreshMessage,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 6) };
         private readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         private readonly Dictionary<string, Dictionary<string, object>> releases = new Dictionary<string, Dictionary<string, object>>();
-        private bool metadataReady, serverAllowed, joinedDomain, snapshotReady, hasState, canResume, refreshing, clientOs, legacySsms, windowClosed;
+        private bool metadataReady, serverAllowed, joinedDomain, snapshotReady, hasState, canResume, refreshing, exporting, clientOs, legacySsms, windowClosed;
         private string detectedDomain = "", computerName = "";
         private Process console;
 
@@ -130,7 +131,7 @@ namespace AdoServerLabAutoOrchestrator
                 Background = new SolidColorBrush(Color.FromRgb(248, 250, 252)) });
             license.Margin = new Thickness(0, 10, 0, 8); panel.Children.Add(license);
             var buttons = new WrapPanel();
-            foreach (var button in new[] { start, resume, refresh })
+            foreach (var button in new[] { start, resume, refresh, export })
             {
                 button.Margin = new Thickness(0, 0, 8, 8); button.Padding = new Thickness(12, 6, 12, 6);
                 buttons.Children.Add(button);
@@ -152,6 +153,7 @@ namespace AdoServerLabAutoOrchestrator
             start.Click += delegate { Launch(false); };
             resume.Click += delegate { Launch(true); };
             refresh.Click += async delegate { await RefreshSnapshot(); };
+            export.Click += async delegate { await ExportDiagnostics(); };
             timer.Tick += async delegate { await RefreshSnapshot(); };
             Loaded += async delegate
             {
@@ -357,6 +359,7 @@ namespace AdoServerLabAutoOrchestrator
 
         private void UpdateButtons()
         {
+            export.IsEnabled = !exporting;
             Dictionary<string, object> release;
             bool found = releases.TryGetValue(Value(version), out release);
             bool supported = found && Flag(release, "Supported");
@@ -439,6 +442,56 @@ namespace AdoServerLabAutoOrchestrator
                 " -SqlInstance " + Quote(instance.Text.Trim()) +
                 (unsupportedOs.IsChecked == true ? " -AllowUnsupportedOs" : "") +
                 " -AcceptLicenseTerms -Confirm:$false";
+        }
+
+        private async Task ExportDiagnostics()
+        {
+            if (exporting) return;
+            exporting = true; UpdateButtons();
+            try
+            {
+                var data = await ReadBridge("Diagnostics");
+                if (windowClosed) return;
+                string buildVersion = FileVersionInfo.GetVersionInfo(typeof(SetupWindow).Assembly.Location).ProductVersion;
+                var editor = new TextBox
+                {
+                    Text = "Application version: " + buildVersion + "\r\n" + Text(data, "Report"),
+                    AcceptsReturn = true, AcceptsTab = true, TextWrapping = TextWrapping.NoWrap,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    FontFamily = new FontFamily("Consolas")
+                };
+                var preview = new Window
+                {
+                    Owner = this, Title = "Review diagnostics before saving", Width = 900, Height = 650,
+                    MinWidth = 600, MinHeight = 400, WindowStartupLocation = WindowStartupLocation.CenterOwner
+                };
+                var panel = new DockPanel { Margin = new Thickness(12) };
+                var warning = new TextBlock
+                {
+                    Text = "Redaction is best-effort, not a guarantee. Review and edit this text before saving or sharing it. Nothing is uploaded.",
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+                };
+                DockPanel.SetDock(warning, Dock.Top); panel.Children.Add(warning);
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+                var save = new Button { Content = "Save reviewed report...", Padding = new Thickness(12, 6, 12, 6), IsDefault = true };
+                var cancel = new Button { Content = "Cancel", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(8, 0, 0, 0), IsCancel = true };
+                save.Click += delegate { preview.DialogResult = true; };
+                buttons.Children.Add(save); buttons.Children.Add(cancel);
+                DockPanel.SetDock(buttons, Dock.Bottom); panel.Children.Add(buttons); panel.Children.Add(editor);
+                preview.Content = panel;
+                if (preview.ShowDialog() != true) return;
+                var dialog = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Save reviewed diagnostics", Filter = "Text report (*.txt)|*.txt",
+                    DefaultExt = ".txt", AddExtension = true, OverwritePrompt = true,
+                    FileName = "AdoServerLabAutoOrchestrator-diagnostics-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + ".txt"
+                };
+                if (dialog.ShowDialog(this) != true) return;
+                File.WriteAllText(dialog.FileName, editor.Text, new UTF8Encoding(false));
+                MessageBox.Show("Diagnostics saved locally:\n" + dialog.FileName, "Diagnostics saved", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Could not export diagnostics", MessageBoxButton.OK, MessageBoxImage.Error); }
+            finally { exporting = false; UpdateButtons(); }
         }
 
         private void Launch(bool retry)

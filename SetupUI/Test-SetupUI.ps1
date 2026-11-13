@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param()
+param([string]$ExpectedVersion)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path -Parent $PSScriptRoot
@@ -11,8 +11,41 @@ foreach ($name in @('SetupBridge.ps1', 'Build-SetupUI.ps1')) {
     $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $name), [ref]$tokens, [ref]$errors)
     if ($errors.Count) { throw ($errors.Message -join '; ') }
 }
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Drawing
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Drawing, System.IO.Compression.FileSystem
 $assembly = [Reflection.Assembly]::LoadFrom($exe)
+$versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+if (-not $ExpectedVersion) { $ExpectedVersion = $versionInfo.ProductVersion }
+if ($ExpectedVersion -notmatch '^\d+(?:\.\d+){3}$' -or
+    $versionInfo.ProductVersion -cne $ExpectedVersion -or [version]$versionInfo.FileVersion -ne [version]$ExpectedVersion -or
+    $assembly.GetName().Version -ne [version]$ExpectedVersion -or $versionInfo.ProductName -cne 'AdoServerLabAutoOrchestrator') {
+    throw 'EXE product, file and assembly metadata must match the requested release version.'
+}
+$buildManifest = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'dist\app.manifest') -Raw)
+if ([version]$buildManifest.assembly.assemblyIdentity.version -ne [version]$ExpectedVersion) {
+    throw 'The compiled application manifest must use the requested release version.'
+}
+foreach ($invalid in @('1.2.3', '1.2.3.65535', '65535.0.0.0', '1.2.3.-1', '1.2.3.4"')) {
+    $rejected = $false
+    try { & (Join-Path $PSScriptRoot 'Build-SetupUI.ps1') -Version $invalid }
+    catch { if ($_.Exception.Message -notlike 'Build version must have four numeric components*') { throw }; $rejected = $true }
+    if (-not $rejected) { throw 'Invalid build versions must fail before generating or compiling files.' }
+}
+$archivePath = Join-Path $PSScriptRoot 'AdoServerLabAutoOrchestrator.zip'
+$checksum = (Get-Content -LiteralPath "$archivePath.sha256" -Raw).Trim()
+$expectedChecksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant() + '  AdoServerLabAutoOrchestrator.zip'
+if ($checksum -cne $expectedChecksum) { throw 'The SHA-256 sidecar must match the exact archive bytes and filename.' }
+$archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
+try {
+    $files = @($archive.Entries | Where-Object Name | ForEach-Object { $_.FullName.Replace('\', '/') })
+    $expectedFiles = @('AdoServerLabAutoOrchestrator.exe', 'SetupBridge.ps1', 'README.md', 'LICENSE',
+        'GuestSetup/Setup-Server.ps1', 'GuestSetup/Resume-Setup.ps1', 'GuestSetup/Setup-Releases.psm1',
+        'GuestSetup/Setup-State.psm1', 'GuestSetup/Setup-Monitoring.psm1', 'GuestSetup/Monitor-Setup.ps1',
+        'GuestSetup/Test-GuestSetup.ps1', 'GuestSetup/README.md')
+    if ((($files | Sort-Object) -join ',') -cne (($expectedFiles | Sort-Object) -join ',')) {
+        throw 'The release ZIP must contain only the required application, license, documentation and guest files.'
+    }
+}
+finally { $archive.Dispose() }
 & {
     $stream = $assembly.GetManifestResourceStream('AdoServerLabAutoOrchestrator.AppIcon.ico')
     if ($null -eq $stream) { throw 'The EXE must embed the application icon.' }
@@ -64,6 +97,12 @@ if ($errors.Count -or $strings.Count -ne 1 -or $strings[0].Value -cne $unsafe) {
         $type.GetField('computerName', $flags).SetValue($window, 'labserver')
         $type.GetField('detectedDomain', $flags).SetValue($window, 'WORKGROUP')
         if ($window.Title -cne 'AdoServerLabAutoOrchestrator') { throw 'The window title must match the application name.' }
+        $export = $type.GetField('export', $flags).GetValue($window)
+        if ($export.Content -ne 'Export diagnostics' -or -not $export.IsEnabled) { throw 'Diagnostic export must be available independently of installation eligibility.' }
+        $type.GetField('exporting', $flags).SetValue($window, $true)
+        $type.GetMethod('UpdateButtons', $flags).Invoke($window, @()) | Out-Null
+        if ($export.IsEnabled) { throw 'A second diagnostic export must not start while one is already active.' }
+        $type.GetField('exporting', $flags).SetValue($window, $false)
         $choice = [Activator]::CreateInstance($assembly.GetType('AdoServerLabAutoOrchestrator.Choice'), @('2022', 'DevOps 2022 / SQL 2022'))
         $versions = $type.GetField('version', $flags).GetValue($window)
         $versions.Items.Add($choice) | Out-Null; $versions.SelectedIndex = 0
@@ -236,7 +275,7 @@ Get-Content -LiteralPath (Join-Path $PSScriptRoot "$Mode.json") -Raw
             $refreshButton.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
             Wait-UiCondition { -not $type.GetField('refreshing', $flags).GetValue($window) }
         }
-        $window.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.FrameworkElement]::LoadedEvent))
+        $window.Show()
         Wait-UiCondition {
             $type.GetField('snapshotReady', $flags).GetValue($window) -and
                 -not $type.GetField('refreshing', $flags).GetValue($window)
@@ -276,6 +315,35 @@ Get-Content -LiteralPath (Join-Path $PSScriptRoot "$Mode.json") -Raw
         $data | ConvertTo-Json | Set-Content -LiteralPath $snapshotPath
         Invoke-ManualRefresh
         if ($pollTimer.IsEnabled -or -not $refreshButton.IsEnabled) { throw 'Transitioning from active polling to Completed must stop the timer but not manual Refresh.' }
+        @{ Report = 'DIAGNOSTIC_PREVIEW_FIXTURE' } | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $pollFixture 'Diagnostics.json')
+        $exportButton = $type.GetField('export', $flags).GetValue($window)
+        $previewResult = @{ Seen = $false; Editable = $false; Versioned = $false; Disabled = $false }
+        $previewPulse = [Windows.Threading.DispatcherTimer]::new()
+        $previewPulse.Interval = [timespan]::FromMilliseconds(25)
+        $previewPulse.Add_Tick({
+            foreach ($owned in @($window.OwnedWindows)) {
+                if ($owned.Title -ne 'Review diagnostics before saving') { continue }
+                $previewResult.Seen = $true
+                $previewResult.Disabled = -not $exportButton.IsEnabled
+                $editor = @($owned.Content.Children | Where-Object { $_ -is [Windows.Controls.TextBox] })[0]
+                $previewResult.Versioned = $editor.Text -like "Application version: *`r`nDIAGNOSTIC_PREVIEW_FIXTURE"
+                $editor.Text = 'REVIEWED_DIAGNOSTIC_FIXTURE'
+                $previewResult.Editable = -not $editor.IsReadOnly -and $editor.Text -eq 'REVIEWED_DIAGNOSTIC_FIXTURE'
+                $previewPulse.Stop()
+                $owned.Close()
+            }
+        })
+        try {
+            $previewPulse.Start()
+            $exportButton.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
+            Wait-UiCondition { -not $type.GetField('exporting', $flags).GetValue($window) }
+            if (-not $previewResult.Seen -or -not $previewResult.Editable -or
+                -not $previewResult.Versioned -or -not $previewResult.Disabled -or -not $exportButton.IsEnabled) {
+                throw 'Diagnostics must open an editable, versioned preview, prevent duplicate exports, and allow cancellation.'
+            }
+        }
+        finally { $previewPulse.Stop() }
         Set-Content -LiteralPath $snapshotPath -Value '{invalid json'
         Invoke-ManualRefresh
         if ($pollTimer.IsEnabled -or -not $refreshButton.IsEnabled -or $type.GetField('snapshotReady', $flags).GetValue($window)) {
@@ -345,8 +413,32 @@ foreach ($name in @('Setup-Server.ps1', 'Resume-Setup.ps1', 'Setup-Releases.psm1
 Import-Module (Join-Path $root 'GuestSetup\Setup-Monitoring.psm1') -Force -ErrorAction Stop
 $tokens = $null; $errors = $null
 $bridge = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'SetupBridge.ps1'), [ref]$tokens, [ref]$errors)
-$function = $bridge.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-UiSnapshot' }, $true)
-. ([scriptblock]::Create($function.Extent.Text))
+foreach ($functionName in @('Get-UiSnapshot', 'ConvertTo-UiDiagnosticText', 'Get-UiDiagnostics')) {
+    $function = $bridge.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName }, $true)
+    if ($null -eq $function) { throw "Missing UI bridge function: $functionName" }
+    . ([scriptblock]::Create($function.Extent.Text))
+}
+& {
+    $sample = @'
+MSI1603: installation failed
+Password="fake-test-password"
+SQLSVCPASSWORD=fake-sql-password
+Authorization: Bearer fake-test-bearer
+{"api_key":"fake-test-key","other":"omitted"}
+<Password>fake-xml-password</Password>
+https://fakeuser:fakepassword@example.invalid/log?sig=fake-signature&code=fake-code
+Contact fake.person@example.invalid from 192.0.2.12 and [2001:db8::12] or ::1
+S-1-5-21-1-2-3-1000 C:\Users\Fake User\logs\setup.log
+AK\labadmin labserver ak.com hostaaa hostbbb
+'@
+    $redacted = ConvertTo-UiDiagnosticText -Text $sample -SensitiveValues @('AK\labadmin', 'labserver', 'ak.com', 'hostaaa', 'hostbbb')
+    foreach ($value in @('fake-test-password', 'fake-sql-password', 'fake-test-bearer', 'fake-test-key', 'fake-xml-password',
+        'fakeuser', 'fakepassword', 'fake-signature', 'fake-code', 'fake.person@example.invalid', '192.0.2.12',
+        '2001:db8::12', '::1', 'S-1-5-21-1-2-3-1000', 'Fake User', 'AK\labadmin', 'labserver', 'ak.com', 'hostaaa', 'hostbbb')) {
+        if ($redacted.Contains($value)) { throw "Diagnostic redaction missed fixture value: $value" }
+    }
+    if (-not $redacted.Contains('MSI1603: installation failed')) { throw 'Diagnostic redaction must retain useful error identifiers.' }
+}
 $fixture = Join-Path $env:TEMP ('SetupUiTest-' + [guid]::NewGuid().ToString('N'))
 $oldProgramData = $env:ProgramData
 $work = Join-Path $fixture 'AdoServerLabAutoOrchestrator'
@@ -361,6 +453,7 @@ try {
         }
         $snapshot = Get-UiSnapshot
         if ($snapshot.HasState -or $snapshot.CanResume -or $snapshot.Status -ne 'NotStarted') { throw 'No-state snapshot must not permit resume.' }
+        if ((Get-UiDiagnostics).Report -notlike '*Status: NotStarted*') { throw 'Diagnostics must support a VM without saved setup.' }
         $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
         $plan = [pscustomobject]@{
             SchemaVersion = 4; Version = '2022'; Components = 'Both'; Email = 'Capture'
@@ -374,6 +467,19 @@ try {
         $before = (Get-FileHash -LiteralPath $path).Hash
         $snapshot = Get-UiSnapshot
         if (-not $snapshot.HasState -or -not $snapshot.CanResume -or $snapshot.Error -ne $plan.LastError -or $snapshot.AllowUnsupportedOs) { throw 'Failed idle plan must expose error/resume and default legacy OS validation to strict.' }
+        & {
+            function Get-SetupMonitoringLogs {
+                param($Work, $Plan, $TailLines)
+                return "MSI1603: fixture failure`r`nPassword=fake-diagnostic-password`r`n$($plan.SetupAccount) $($plan.SetupSid) labserver.ak.com"
+            }
+            $report = (Get-UiDiagnostics).Report
+            if ($report -notlike '*Status: Failed*' -or $report -notlike '*MSI1603*' -or
+                $report.Contains('fake-diagnostic-password') -or $report.Contains($plan.SetupAccount) -or
+                $report.Contains($plan.SetupSid) -or $report.Contains('labserver.ak.com') -or
+                (Get-FileHash -LiteralPath $path).Hash -ne $before) {
+                throw 'Diagnostic generation must preserve state, include the selected error/log tail, and redact saved identities and credentials.'
+            }
+        }
         $taskState = 'Running'
         if ((Get-UiSnapshot).CanResume) { throw 'Running task cannot be resumed by the UI.' }
         $plan.StageIndex = @(Get-SetupSteps -Plan $plan).Count; $plan.Status = 'Completed'; $plan.LastError = ''
@@ -714,4 +820,4 @@ finally {
     Remove-Item -LiteralPath $work -Force
     Remove-Item -LiteralPath $fixture -Force
 }
-Write-Host 'PASS: UI command quoting/encoding, package integrity, snapshots, resume gates, shared TEMP/product/SQL log tails, stage filtering and read-only monitoring.'
+Write-Host 'PASS: UI command quoting/encoding, version metadata, checksum/package integrity, editable diagnostic preview/redaction, snapshots, resume gates, shared log tails and read-only monitoring.'

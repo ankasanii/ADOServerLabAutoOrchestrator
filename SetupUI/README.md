@@ -20,10 +20,15 @@ fixtures and never run setup. PowerShell 7 runs the compatible checks but
 explicitly skips that integration block because its runtime lacks the
 `System.Web` dependencies used by the EXE.
 
-The build produces `SetupUI\dist\AdoServerLabAutoOrchestrator.exe` and `SetupUI\AdoServerLabAutoOrchestrator.zip`.
+The build produces `SetupUI\dist\AdoServerLabAutoOrchestrator.exe`,
+`SetupUI\AdoServerLabAutoOrchestrator.zip`, and
+`SetupUI\AdoServerLabAutoOrchestrator.zip.sha256`. Local builds use the UTC date
+with revision `0`; pass `-Version 2026.11.13.5` to stamp a specific four-part
+version. The EXE metadata and generated application manifest share that version.
+CI supplies one shared version for the build, tests, and release title.
 Distribute the ZIP only through channels covered by your distribution permissions.
 The [GitHub Actions workflow](../.github/workflows/build-release.yml) builds and tests
-the package, then attaches the ZIP to a GitHub release after each successful push
+the package, then attaches the ZIP and verified checksum to a GitHub release after each successful push
 to `main`; pull requests build and test without publishing. See the
 [repository release guide](../README.md#github-actions-builds-and-releases).
 Extract **the whole
@@ -31,6 +36,19 @@ ZIP** into a trusted, administrator-controlled folder on the target supported Wi
 then double-click `AdoServerLabAutoOrchestrator.exe`. Keep `SetupBridge.ps1` and `GuestSetup` beside
 the EXE. No separate modern .NET runtime is required; it uses Windows' .NET
 Framework and Windows PowerShell 5.1.
+
+### Export diagnostics
+
+Select **Export diagnostics** to collect a local text report containing the
+application version, setup summary, saved error, and selected current log tails.
+An editable preview opens before the save dialog. Review it, remove anything
+sensitive, then select **Save reviewed report...** and choose a local destination.
+Cancel closes the preview without saving.
+
+Redaction is best-effort, not a guarantee: review names, addresses, paths, and
+credentials before sharing. The export does not upload anything, run setup, or
+modify saved setup state. Raw state, full log files, and installer payloads are
+not attached.
 
 ### Application icon
 
