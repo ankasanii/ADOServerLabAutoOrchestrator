@@ -33,9 +33,10 @@ $arguments += Join-Path $PSScriptRoot 'SetupUI.cs'
 if ($LASTEXITCODE -ne 0) { throw "C# compilation failed: $LASTEXITCODE" }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'SetupBridge.ps1') -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination $output -Force
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $output -Force
 foreach ($name in $required) { Copy-Item -LiteralPath (Join-Path $root "GuestSetup\$name") -Destination (Join-Path $output 'GuestSetup') -Force }
 $archive = Join-Path $PSScriptRoot 'AdoServerLabAutoOrchestrator.zip'
-$packageFiles = @('AdoServerLabAutoOrchestrator.exe', 'SetupBridge.ps1', 'README.md', 'GuestSetup')
+$packageFiles = @('AdoServerLabAutoOrchestrator.exe', 'SetupBridge.ps1', 'README.md', 'LICENSE', 'GuestSetup')
 Compress-Archive -Path @($packageFiles | ForEach-Object { Join-Path $output $_ }) -DestinationPath $archive -Force
 Write-Host "Built: $(Join-Path $output 'AdoServerLabAutoOrchestrator.exe')"
 Write-Host "Distribution: $archive"

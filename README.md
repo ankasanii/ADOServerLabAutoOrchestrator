@@ -153,5 +153,5 @@ The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is
 - Configure external access, name resolution, certificate trust, and network controls yourself.
 - The UI build is unsigned. Follow your organization's signing and application-control requirements; do not disable security policies to run it.
 - Before public distribution, confirm that permission for the Microsoft Azure DevOps application icon covers that distribution. See the [icon permission notice](SetupUI/README.md#application-icon).
-- Microsoft product licenses and trademark terms apply separately. No repository license file is currently included; do not assume an open-source license.
+- Original project code is available under the [MIT License](LICENSE), also included in the distribution ZIP. Third-party software, Microsoft artwork, product licenses, and trademark terms remain separate.
 - Do not publish credentials, certificates/private keys, saved setup state, or unredacted logs in GitHub issues or commits.
