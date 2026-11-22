@@ -122,6 +122,10 @@ if ($errors.Count -or $strings.Count -ne 1 -or $strings[0].Value -cne $unsafe) {
         function Get-NoticeText {
             return ([Windows.Documents.TextRange]::new($notesControl.ContentStart, $notesControl.ContentEnd)).Text
         }
+        if ((Get-NoticeText) -notlike '*Private networking is not required to install*Private/LocalSubnet only*remote access on Public networks*' -or
+            (Get-NoticeText) -like '*Private network is required*') {
+            throw 'Workgroup UI must explain non-blocking Public-network installation and the unchanged Private-only automatic firewall rules.'
+        }
         if ((Get-NoticeText) -notlike '*WARNING - Workgroup account requirements*local administrator*not a PIN*Microsoft Entra ID/AzureAD*password-based Task Scheduler logon*' -or
             (Get-NoticeText) -like '*WARNING - Domain membership required*') {
             throw 'Workgroup mode must warn about unsupported company accounts and password-based resume before setup starts.'

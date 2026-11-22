@@ -166,10 +166,11 @@ function Assert-SetupHostResolution {
 }
 
 function Get-SetupFirewallProfile {
+    [CmdletBinding()]
     param([psobject]$Plan)
     if ((Get-SetupJoinMode -Plan $Plan) -eq 'Domain') { return 'Domain' }
     if (-not @(Get-NetConnectionProfile -ErrorAction Stop | Where-Object NetworkCategory -eq 'Private').Count) {
-        throw 'Workgroup DevOps requires a trusted Private network profile. Review/set the intended interface to Private before setup; Public access is never opened automatically.'
+        Write-Warning 'Workgroup setup will continue without a Private network profile. Automatic HTTPS/Git SSH firewall rules remain Private/LocalSubnet only; remote access on Public networks requires explicitly approved Windows Firewall and Azure NSG configuration. No network profile is changed.'
     }
     return 'Private'
 }

@@ -133,8 +133,12 @@ upgrade existing servers or provide RC-to-final upgrades. See the
    Workgroup's DNS hostname defaults to the VM name; optionally enter an existing
    custom record pointing only to this VM. DNS is not created automatically.
    HTTPS URL/certificate/binding all use the chosen name. Remote clients need
-   name resolution and certificate trust. A trusted Private network is required
-   for workgroup DevOps firewall rules; Public is never opened automatically.
+   name resolution and certificate trust. Private networking is not required
+   for installation. Automatic Workgroup HTTPS/Git SSH rules remain Private /
+   LocalSubnet only; remote access on Public networks requires explicitly
+   approved Windows Firewall and Azure NSG rules. Setup warns when no Private
+   profile exists, but continues without changing the network profile or opening
+   Public access automatically.
 3. Check license acceptance, click **Start installation**, and approve the warning.
 4. Enter the same Windows account's password in the **masked PowerShell console**
    that opens. The UI never reads or stores the password. Review console errors.
