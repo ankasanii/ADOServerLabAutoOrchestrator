@@ -28,8 +28,9 @@ version. The EXE metadata and generated application manifest share that version.
 CI supplies one shared version for the build, tests, and release title.
 Distribute the ZIP only through channels covered by your distribution permissions.
 The [GitHub Actions workflow](../.github/workflows/build-release.yml) builds and tests
-the package, then attaches the ZIP and verified checksum to a GitHub release after each successful push
-to `main`; pull requests build and test without publishing. See the
+the package, then attaches the ZIP and verified checksum to a GitHub release after each successful
+non-documentation-only push to `main`; pull requests never publish. Markdown-only
+changes run lint without building, testing, or publishing a package. See the
 [repository release guide](../README.md#github-actions-builds-and-releases).
 Extract **the whole
 ZIP** into a trusted, administrator-controlled folder on the target supported Windows VM,
@@ -132,8 +133,12 @@ upgrade existing servers or provide RC-to-final upgrades. See the
    Workgroup's DNS hostname defaults to the VM name; optionally enter an existing
    custom record pointing only to this VM. DNS is not created automatically.
    HTTPS URL/certificate/binding all use the chosen name. Remote clients need
-   name resolution and certificate trust. A trusted Private network is required
-   for workgroup DevOps firewall rules; Public is never opened automatically.
+   name resolution and certificate trust. Private networking is not required
+   for installation. Automatic Workgroup HTTPS/Git SSH rules remain Private /
+   LocalSubnet only; remote access on Public networks requires explicitly
+   approved Windows Firewall and Azure NSG rules. Setup warns when no Private
+   profile exists, but continues without changing the network profile or opening
+   Public access automatically.
 3. Check license acceptance, click **Start installation**, and approve the warning.
 4. Enter the same Windows account's password in the **masked PowerShell console**
    that opens. The UI never reads or stores the password. Review console errors.

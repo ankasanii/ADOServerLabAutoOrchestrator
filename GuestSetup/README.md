@@ -248,9 +248,11 @@ It does **not** set `DisableLoopbackCheck`. A successful custom-host configurati
 requests a reboot before later stages; this uses the normal saved-stage resume
 workflow.
 
-Workgroup HTTPS/Git SSH firewall rules apply to **Private / LocalSubnet** only.
-Before starting DevOps setup, review `Get-NetConnectionProfile` and set only your
-trusted intended interface to Private through approved network administration.
+Workgroup setup may run on Public networks; a Private network profile is not
+an installation prerequisite. HTTPS/Git SSH firewall rules still apply to
+**Private / LocalSubnet** only. When no Private profile exists, setup warns and
+continues. Remote access on Public networks needs explicitly approved Windows
+Firewall and Azure NSG configuration; setup does not create those rules.
 No Public profile rules or network-profile changes are made by setup. `SqlOnly`
 does not require DevOps firewall/DNS preflight.
 

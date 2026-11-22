@@ -324,7 +324,7 @@ namespace AdoServerLabAutoOrchestrator
             if (Value(joinMode) == "Workgroup")
             {
                 AddNotice("WARNING - Workgroup account requirements", "Run setup as an organization-approved local administrator (VMNAME\\username) with a password, not a PIN. Microsoft Entra ID/AzureAD or domain accounts on a non-AD-domain-joined VM are not supported by this workflow. Automatic reboot/resume requires password-based Task Scheduler logon. Company sign-in alone does not make the VM AD-domain joined.", NoticeWarning);
-                AddNotice("INFO - Workgroup prerequisites", "A trusted Private network is required. Custom DNS must already point to this VM; remote clients must trust the certificate.", NoticeInfo);
+                AddNotice("INFO - Workgroup prerequisites", "Private networking is not required to install. Automatic HTTPS/Git SSH firewall rules remain Private/LocalSubnet only; remote access on Public networks needs explicitly approved firewall and Azure NSG rules. Setup does not change network profiles. Custom DNS must already point to this VM; remote clients must trust the certificate.", NoticeInfo);
             }
             if (found)
             {

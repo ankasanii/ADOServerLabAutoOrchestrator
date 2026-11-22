@@ -283,7 +283,11 @@ function Test-GuestSetupOffline {
         Assert-MembershipRejection { Assert-SetupHostResolution -Plan $plan } '*must resolve only to this VM*'
         if ((Get-SetupFirewallProfile -Plan $plan) -ne 'Private') { throw 'Workgroup rules require Private profile.' }
         $networkCategory = 'Public'
-        Assert-MembershipRejection { Get-SetupFirewallProfile -Plan $plan } '*trusted Private network*'
+        $profile = Get-SetupFirewallProfile -Plan $plan -WarningVariable networkWarnings
+        if ($profile -ne 'Private' -or ($networkWarnings -join ' ') -notlike '*setup will continue*remote access on Public networks*') {
+            throw 'Public-network Workgroup setup must proceed with a visible remote-access warning and keep firewall rules Private-only.'
+        }
+        function Set-NetConnectionProfile { throw 'Setup must not change network profiles.' }
         $plan.DnsHostName = 'labserver'
         function Resolve-DnsName { throw 'Default computer hostname must not require a custom DNS record.' }
         Assert-SetupHostResolution -Plan $plan
@@ -352,7 +356,8 @@ function Test-GuestSetupOffline {
             [pscustomobject]@{ IPAddress = '192.0.2.10' }
         }
         function Get-NetIPAddress { [CmdletBinding()] param() [pscustomobject]@{ IPAddress = '192.0.2.10' } }
-        function Get-NetConnectionProfile { [CmdletBinding()] param() [pscustomobject]@{ NetworkCategory = 'Private' } }
+        function Get-NetConnectionProfile { [CmdletBinding()] param() [pscustomobject]@{ NetworkCategory = 'Public' } }
+        function Set-NetConnectionProfile { throw 'Configuration must not change the Public network profile.' }
         function Get-NetFirewallRule { param($Name, $ErrorAction) return $null }
         function New-NetFirewallRule {
             param($Name, $DisplayName, $Direction, $Protocol, $LocalPort, $Profile, $RemoteAddress, $Action)

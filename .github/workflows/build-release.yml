@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       version: ${{ steps.version.outputs.version }}
+      docs_only: ${{ steps.changes.outputs.docs_only }}
     defaults:
       run:
         shell: powershell
@@ -24,14 +25,52 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect Markdown-only changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $base = $env:BEFORE_SHA
+          $head = $env:HEAD_SHA
+          $separator = '..'
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            $base = $env:PR_BASE_SHA
+            $head = $env:PR_HEAD_SHA
+            $separator = '...'
+          }
+          elseif ($env:EVENT_NAME -ne 'push') { throw 'Unsupported event for change detection.' }
+          if ($base -notmatch '^[0-9a-f]{40}$' -or $head -notmatch '^[0-9a-f]{40}$') {
+            throw 'Missing or invalid commit IDs for change detection.'
+          }
+          $docsOnly = $false
+          if ($base -match '^0+$') {
+            Write-Host 'Initial push: running full validation.'
+          }
+          else {
+            $files = @(git diff --no-renames --name-only "$base$separator$head" --)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not determine changed files.' }
+            $docsOnly = $files.Count -gt 0 -and @($files | Where-Object { $_ -notmatch '\.md$' }).Count -eq 0
+          }
+          "docs_only=$($docsOnly.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $summary = if ($docsOnly) { 'Markdown-only changes: running lint; build, tests, ZIP upload, and release are skipped.' }
+              else { 'Running full lint, build, and test validation.' }
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: Lint workflows and PowerShell
         run: .\.github\Test-Lint.ps1
 
       - name: Run offline guest tests
+        if: steps.changes.outputs.docs_only == 'false'
         run: .\GuestSetup\Setup-Server.ps1 -ValidateOnly
 
       - name: Determine build version
+        if: steps.changes.outputs.docs_only == 'false'
         id: version
         env:
           BUILD_RUN_NUMBER: ${{ github.run_number }}
@@ -40,11 +79,13 @@ jobs:
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Build UI, ZIP, and checksum
+        if: steps.changes.outputs.docs_only == 'false'
         env:
           BUILD_VERSION: ${{ steps.version.outputs.version }}
         run: .\SetupUI\Build-SetupUI.ps1 -Version $env:BUILD_VERSION
 
       - name: Test UI in Windows PowerShell 5.1 STA
+        if: steps.changes.outputs.docs_only == 'false'
         env:
           EXPECTED_BUILD_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -52,6 +93,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "UI tests failed: $LASTEXITCODE" }
 
       - name: Upload tested ZIP
+        if: steps.changes.outputs.docs_only == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: AdoServerLabAutoOrchestrator
@@ -64,7 +106,7 @@ jobs:
   release:
     name: Publish GitHub release
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.outputs.docs_only == 'false'
     runs-on: windows-2022
     timeout-minutes: 10
     permissions:
@@ -90,5 +132,5 @@ jobs:
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'Release ZIP checksum mismatch.' }
           $releaseTitle = "AdoServerLabAutoOrchestrator-$env:RELEASE_VERSION"
           $notes = "Automated lab build from commit $env:RELEASE_COMMIT. Extract the whole AdoServerLabAutoOrchestrator.zip before running AdoServerLabAutoOrchestrator.exe. The application is unsigned; review the repository documentation and distribution requirements before use."
-          gh release create "$env:RELEASE_TAG" "$archive" "$archive.sha256" --repo "$env:GH_REPO" --target "$env:RELEASE_COMMIT" --title "$releaseTitle" --notes "$notes"
+          gh release create "$env:RELEASE_TAG" "$archive" "$archive.sha256" --repo "$env:GH_REPO" --target "$env:RELEASE_COMMIT" --title "$releaseTitle" --notes "$notes" --generate-notes
           if ($LASTEXITCODE -ne 0) { throw "Release publication failed: $LASTEXITCODE" }
