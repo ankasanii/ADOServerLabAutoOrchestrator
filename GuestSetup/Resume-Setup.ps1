@@ -177,7 +177,11 @@ function Get-SetupFirewallProfile {
 
 function Get-SetupMailDomain {
     param([psobject]$Plan)
-    if ((Get-SetupJoinMode -Plan $Plan) -eq 'Workgroup') { return Get-SetupHostName -Plan $Plan }
+    if ((Get-SetupJoinMode -Plan $Plan) -eq 'Workgroup') {
+        $hostName = Get-SetupHostName -Plan $Plan
+        if ($hostName -notlike '*.*') { return "$hostName.example.com" }
+        return $hostName
+    }
     return $Plan.DomainName
 }
 

@@ -138,6 +138,30 @@ function Test-GuestSetupOffline {
             Remove-Item -LiteralPath $root -Recurse -Force
         }
     }
+    & {
+        foreach ($case in @(
+            @{ Mode = 'Workgroup'; HostName = 'adovm'; Domain = 'WORKGROUP'; Expected = 'adovm.example.com' },
+            @{ Mode = 'Workgroup'; HostName = 'devops.lab.example.com'; Domain = 'WORKGROUP'; Expected = 'devops.lab.example.com' },
+            @{ Mode = 'Domain'; HostName = 'adovm.ak.com'; Domain = 'ak.com'; Expected = 'ak.com' }
+        )) {
+            $plan = [pscustomobject]@{
+                SchemaVersion = 6; JoinMode = $case.Mode; DnsHostName = $case.HostName; DomainName = $case.Domain
+                SqlInstance = 'localhost'; Email = 'Capture'; Ports = $null
+            }
+            if ((Get-SetupMailDomain -Plan $plan) -ne $case.Expected) {
+                throw 'Short Workgroup hostnames must use a dotted example.com lab mail domain; existing domain/FQDN senders must remain unchanged.'
+            }
+            $text = (@('InstallSqlExpress','SqlInstance','StartTrial','ConfigureSearch','CreateInitialCollection',
+                'CollectionName','UrlHostNameAlias','WebSiteVDirName','PublicUrl','EnableSshService','SshPort',
+                'SmtpEmailEnabled','SiteBindings','SmtpServer','SmtpPort','SmtpFromAddress') |
+                ForEach-Object { "$_=old" }) -join "`r`n"
+            $ini = Get-SetupDevOpsIniText -Text $text -Plan $plan -Thumbprint 'MOCK'
+            foreach ($line in @("SmtpFromAddress=devops@$($case.Expected)", "UrlHostNameAlias=$($case.HostName)",
+                "PublicUrl=https://$($case.HostName)/tfs", "SiteBindings=https:*:443:$($case.HostName):My:MOCK")) {
+                if (($ini -split '\r?\n') -notcontains $line) { throw "Workgroup SMTP correction changed or omitted INI settings: $line" }
+            }
+        }
+    }
     $module = (Get-Command Get-SetupRelease -ErrorAction Stop).Module
     $expectedExports = @('Assert-SetupOperatingSystem', 'Get-SetupPatchCatalog', 'Get-SetupRelease')
     if ($null -eq $module -or $module.Path -ne (Join-Path $Folder 'Setup-Releases.psm1') -or
