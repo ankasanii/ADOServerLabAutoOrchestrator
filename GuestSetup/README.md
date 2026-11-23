@@ -256,6 +256,13 @@ Firewall and Azure NSG configuration; setup does not create those rules.
 No Public profile rules or network-profile changes are made by setup. `SqlOnly`
 does not require DevOps firewall/DNS preflight.
 
+Local SMTP capture uses `devops@<mail-domain>` as the DevOps sender and the same
+mail domain for verification messages. Domain mode uses the AD domain; Workgroup
+mode uses the configured DNS hostname, appending `.example.com` only when that
+hostname is a short name (for example `devops@adovm.example.com`). TfsConfig rejects
+single-label senders such as `devops@adovm`. This lab mail suffix does not change
+the VM hostname, HTTPS URL, certificate or DNS and does not enable external delivery.
+
 Workgroup access uses suitable local Windows accounts and Azure DevOps
 permissions; accounts on clients do not provide AD single sign-on. Create/grant
 remote engineers' accounts/permissions separately and follow your NTLM policies.
