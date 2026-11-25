@@ -232,25 +232,33 @@ The [build and release workflow](.github/workflows/build-release.yml) runs on pu
 3. Build the UI and distribution ZIP.
 4. Run the UI tests in STA mode.
 5. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
-6. For a successful non-documentation-only push to `main`, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
+6. For a successful push to `main` containing package-affecting changes (see below), verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
 
-### Markdown-only fast path
+### Documentation and URL-checker fast path
 
-When every changed file ends in `.md` (case-insensitive), CI still starts and
-runs workflow/PowerShell lint, but skips guest/UI tests, the EXE/ZIP build,
+When every changed file ends in `.md` (case-insensitive) or is one of
+`Test-DownloadUrls.ps1`, `Test-DownloadUrls.Offline.ps1`, or
+`.github/workflows/check-download-urls.yml`, CI still starts and runs
+workflow/PowerShell lint, but skips guest/UI tests, the EXE/ZIP build,
 artifact upload, and release publication. The required **Build and test Windows
 package** check completes normally after lint succeeds; no `[skip ci]` marker
 or workflow-level path exclusion is needed.
+The separate URL-check workflow runs its offline and online checks when its
+path filters match; link failures do not gate build/release publication.
 
 Pull requests are classified using the complete PR diff, not just the latest
 commit. Pushes compare the previous and current commit across the whole push.
-Renaming a non-Markdown file to Markdown still requires full validation.
-Code, scripts, workflow YAML, mixed changes, initial pushes, and empty diffs
-take the full path. Change-detection errors fail the check rather than
+Renaming a package file into the validation-only set still requires full validation.
+Other code, scripts, workflow YAML, mixed changes, initial pushes, and empty
+diffs take the full build path. Change-detection errors fail the check rather than
 silently skipping work.
 
 Documentation bundled in the ZIP is refreshed with the next full release.
-Any change to this workflow itself still runs the full pipeline.
+Changes to `build-release.yml` itself still run the full build/test pipeline.
+However, when that workflow is the only change outside the documentation and
+URL-checker set, CI uploads the tested ZIP without publishing a GitHub release.
+Any additional package-affecting change restores normal release publication.
+Other workflow files are not excluded automatically.
 
 ### Release publication
 
@@ -267,7 +275,7 @@ Local builds default to the UTC date with revision `0`. To stamp a specific vers
 
 Push this workflow to `main` to start the first build. Monitor it in the repository's **Actions** tab, then download the ZIP from **Releases**. Release assets remain available independently of workflow artifact retention.
 
-The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because every successful non-documentation-only push to `main` publishes a release.
+The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because successful package-affecting pushes to `main` publish a release.
 
 ### Pull-request protection
 
