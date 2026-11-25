@@ -25,6 +25,45 @@ The project provides prerequisite checks, product installation and configuration
 
 ## Release options
 
+### Online download-link validation
+
+Before publishing a build, run the separate online check from the repository root:
+
+```powershell
+.\Test-DownloadUrls.ps1
+# Optional CSV report (parent directory must exist):
+.\Test-DownloadUrls.ps1 -ReportPath C:\Reports\download-links.csv
+```
+
+It discovers releases/patches from the release module and literal download URLs
+from the worker (including SSMS and smtp4dev), checks each unique URL once, and
+follows up to 10 HTTPS redirects. HEAD requests fall back to a range GET on
+403/405/501; bodies are never read, even when Range is ignored. Requests time out
+after 30 seconds each (`-TimeoutSeconds` can override). HTML landing pages,
+HTTP errors, network failures and unsafe redirects fail the check. Exit code 0
+means all links passed; 1 means unavailable links; 2 means configuration,
+discovery, reporting or unexpected checker errors.
+No administrator privileges or installer execution is needed.
+
+Run `.\Test-DownloadUrls.Offline.ps1` for the checker's network-free regression
+tests. The online check is intentionally not part of offline tests or the build.
+It checks availability, not hashes/signatures, download completeness or the
+additional URLs used internally by SQL/SSMS bootstrappers. Network/proxy failures
+do not prove a link was removed. Existing installer integrity checks remain.
+
+The separate [Check download URLs workflow](.github/workflows/check-download-urls.yml)
+runs every Monday at 07:23 UTC, on relevant pull requests/pushes to `main`, or
+manually using **Actions > Check download URLs > Run workflow**. Scheduled runs
+use the default branch; the workflow must be merged there for scheduled/manual
+availability. It uploads `download-url-report` (CSV, retained for 14 days), even
+when a URL check fails. Unavailable links (including the known unavailable 2022
+Update 2 Patch 6 link) produce a GitHub Actions warning and job-summary notice
+instead of failing the workflow; CSV entries remain `FAIL`. Lint/test failures,
+invalid configured URLs, unexpected checker errors and report/upload failures
+remain failures. The standalone script still returns a nonzero exit code for
+unavailable links. This workflow does not gate the build/release workflow;
+branch protection can independently require its check.
+
 | CLI version | Azure DevOps Server option | SQL pairing for a fresh local installation |
 |---|---|---|
 | `2020` | 2020 | SQL Server 2019 Developer |
@@ -198,25 +237,33 @@ The [build and release workflow](.github/workflows/build-release.yml) runs on pu
 3. Build the UI and distribution ZIP.
 4. Run the UI tests in STA mode.
 5. Upload the tested ZIP and SHA-256 sidecar as the `AdoServerLabAutoOrchestrator` workflow artifact, retained for 14 days.
-6. For a successful non-documentation-only push to `main`, verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
+6. For a successful push to `main` containing package-affecting changes (see below), verify the downloaded ZIP against its checksum, then create a GitHub release with both files attached.
 
-### Markdown-only fast path
+### Documentation and URL-checker fast path
 
-When every changed file ends in `.md` (case-insensitive), CI still starts and
-runs workflow/PowerShell lint, but skips guest/UI tests, the EXE/ZIP build,
+When every changed file ends in `.md` (case-insensitive) or is one of
+`Test-DownloadUrls.ps1`, `Test-DownloadUrls.Offline.ps1`, or
+`.github/workflows/check-download-urls.yml`, CI still starts and runs
+workflow/PowerShell lint, but skips guest/UI tests, the EXE/ZIP build,
 artifact upload, and release publication. The required **Build and test Windows
 package** check completes normally after lint succeeds; no `[skip ci]` marker
 or workflow-level path exclusion is needed.
+The separate URL-check workflow runs its offline and online checks when its
+path filters match; link failures do not gate build/release publication.
 
 Pull requests are classified using the complete PR diff, not just the latest
 commit. Pushes compare the previous and current commit across the whole push.
-Renaming a non-Markdown file to Markdown still requires full validation.
-Code, scripts, workflow YAML, mixed changes, initial pushes, and empty diffs
-take the full path. Change-detection errors fail the check rather than
+Renaming a package file into the validation-only set still requires full validation.
+Other code, scripts, workflow YAML, mixed changes, initial pushes, and empty
+diffs take the full build path. Change-detection errors fail the check rather than
 silently skipping work.
 
 Documentation bundled in the ZIP is refreshed with the next full release.
-Any change to this workflow itself still runs the full pipeline.
+Changes to `build-release.yml` itself still run the full build/test pipeline.
+However, when that workflow is the only change outside the documentation and
+URL-checker set, CI uploads the tested ZIP without publishing a GitHub release.
+Any additional package-affecting change restores normal release publication.
+Other workflow files are not excluded automatically.
 
 ### Release publication
 
@@ -233,7 +280,7 @@ Local builds default to the UTC date with revision `0`. To stamp a specific vers
 
 Push this workflow to `main` to start the first build. Monitor it in the repository's **Actions** tab, then download the ZIP from **Releases**. Release assets remain available independently of workflow artifact retention.
 
-The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because every successful non-documentation-only push to `main` publishes a release.
+The workflow uses GitHub's automatic `GITHUB_TOKEN`; no personal access token is required. GitHub Actions must be enabled, and repository/organization policies must allow the release job's `contents: write` permission. Confirm publication and application-icon permissions before pushing, because successful package-affecting pushes to `main` publish a release.
 
 ### Pull-request protection
 

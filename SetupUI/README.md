@@ -29,8 +29,10 @@ CI supplies one shared version for the build, tests, and release title.
 Distribute the ZIP only through channels covered by your distribution permissions.
 The [GitHub Actions workflow](../.github/workflows/build-release.yml) builds and tests
 the package, then attaches the ZIP and verified checksum to a GitHub release after each successful
-non-documentation-only push to `main`; pull requests never publish. Markdown-only
-changes run lint without building, testing, or publishing a package. See the
+package-affecting push to `main`; pull requests never publish. Documentation/
+URL-checker-only changes run lint without building or publishing a package;
+changes limited to the build workflow and that tooling set still validate the
+package but do not publish a release. See the
 [repository release guide](../README.md#github-actions-builds-and-releases).
 Extract **the whole
 ZIP** into a trusted, administrator-controlled folder on the target supported Windows VM,
