@@ -25,6 +25,40 @@ The project provides prerequisite checks, product installation and configuration
 
 ## Release options
 
+### Online download-link validation
+
+Before publishing a build, run the separate online check from the repository root:
+
+```powershell
+.\Test-DownloadUrls.ps1
+# Optional CSV report (parent directory must exist):
+.\Test-DownloadUrls.ps1 -ReportPath C:\Reports\download-links.csv
+```
+
+It discovers releases/patches from the release module and literal download URLs
+from the worker (including SSMS and smtp4dev), checks each unique URL once, and
+follows up to 10 HTTPS redirects. HEAD requests fall back to a range GET on
+403/405/501; bodies are never read, even when Range is ignored. Requests time out
+after 30 seconds each (`-TimeoutSeconds` can override). HTML landing pages,
+HTTP errors, network failures and unsafe redirects fail the check. Exit code 0
+means all links passed; 1 means at least one check or discovery/reporting failed.
+No administrator privileges or installer execution is needed.
+
+Run `.\Test-DownloadUrls.Offline.ps1` for the checker's network-free regression
+tests. The online check is intentionally not part of offline tests or the build.
+It checks availability, not hashes/signatures, download completeness or the
+additional URLs used internally by SQL/SSMS bootstrappers. Network/proxy failures
+do not prove a link was removed. Existing installer integrity checks remain.
+
+The separate [Check download URLs workflow](.github/workflows/check-download-urls.yml)
+runs every Monday at 07:23 UTC, on relevant pull requests/pushes to `main`, or
+manually using **Actions > Check download URLs > Run workflow**. Scheduled runs
+use the default branch; the workflow must be merged there for scheduled/manual
+availability. It uploads `download-url-report` (CSV, retained for 14 days), even
+when a URL check fails. No failures are ignored, including the known unavailable
+2022 Update 2 Patch 6 link. This workflow does not gate the build/release workflow;
+branch protection can independently require its check.
+
 | CLI version | Azure DevOps Server option | SQL pairing for a fresh local installation |
 |---|---|---|
 | `2020` | 2020 | SQL Server 2019 Developer |

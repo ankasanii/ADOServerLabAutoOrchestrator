@@ -1,0 +1,54 @@
+name: Check download URLs
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/check-download-urls.yml'
+      - 'Test-DownloadUrls.ps1'
+      - 'Test-DownloadUrls.Offline.ps1'
+      - 'GuestSetup/Setup-Releases.psm1'
+      - 'GuestSetup/Resume-Setup.ps1'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/check-download-urls.yml'
+      - 'Test-DownloadUrls.ps1'
+      - 'Test-DownloadUrls.Offline.ps1'
+      - 'GuestSetup/Setup-Releases.psm1'
+      - 'GuestSetup/Resume-Setup.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  check-download-urls:
+    name: Verify configured installer links
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test checker offline
+        run: .\Test-DownloadUrls.Offline.ps1
+
+      - name: Check download URLs online
+        run: .\Test-DownloadUrls.ps1 -ReportPath .\download-links.csv
+
+      - name: Upload URL check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: download-url-report
+          path: download-links.csv
+          if-no-files-found: error
+          retention-days: 14
