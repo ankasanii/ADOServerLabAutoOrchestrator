@@ -42,7 +42,16 @@ jobs:
         run: .\Test-DownloadUrls.Offline.ps1
 
       - name: Check download URLs online
-        run: .\Test-DownloadUrls.ps1 -ReportPath .\download-links.csv
+        run: |
+          powershell.exe -NoProfile -NonInteractive -File .\Test-DownloadUrls.ps1 -ReportPath .\download-links.csv
+          $checkExitCode = $LASTEXITCODE
+          if ($checkExitCode -eq 1) {
+            Write-Host '::warning::Some download URLs are unavailable. Review the download-url-report CSV artifact and check logs.'
+            'Warning: some download URLs are unavailable. See the download-url-report CSV artifact for details.' |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+          elseif ($checkExitCode -ne 0) { throw "Download URL checker failed to execute correctly (exit $checkExitCode)." }
+          exit 0
 
       - name: Upload URL check report
         if: always()

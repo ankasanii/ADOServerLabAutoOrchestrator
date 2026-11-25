@@ -13,7 +13,8 @@ never read, even if a server ignores Range. Each request has a bounded timeout;
 at most 10 HTTPS redirects per attempt. No certificate-validation bypass.
 Availability does not verify signatures/hashes or bootstrapper dependencies.
 Proxy/network failures are failures to verify, not proof the URL was removed.
-Exit 0: all pass. Exit 1: one or more failed or discovery/reporting failed.
+Exit 0: all pass. Exit 1: unavailable links. Exit 2: configuration, discovery,
+reporting or unexpected checker errors.
 #>
 #requires -Version 5.1
 [CmdletBinding()]
@@ -105,32 +106,54 @@ function Test-SetupDownloadLink {
     $uri = $null
     $method = 'HEAD'
     $status = $null
+    $failureKind = 'Error'
     try {
         $uri = [uri]$Link.Url
+        if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'https' -or $uri.UserInfo) {
+            throw "Download URL must use HTTPS without embedded credentials: $uri"
+        }
         foreach ($attempt in @('HEAD', 'GET')) {
             $method = $attempt
             $uri = [uri]$Link.Url
             for ($redirect = 0; $redirect -le 10; $redirect++) {
                 if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'https' -or $uri.UserInfo) {
+                    $failureKind = 'Unavailable'
                     throw "Download/redirect must use HTTPS without embedded credentials: $uri"
                 }
                 $status = $null
-                $response = Invoke-DownloadLinkRequest -Client $Client -Uri $uri -Method $method -TimeoutSeconds $TimeoutSeconds
+                try {
+                    $response = Invoke-DownloadLinkRequest -Client $Client -Uri $uri -Method $method -TimeoutSeconds $TimeoutSeconds
+                }
+                catch {
+                    $cause = $_.Exception.GetBaseException()
+                    if ($cause -is [Net.Http.HttpRequestException] -or
+                        $cause -is [OperationCanceledException] -or $cause -is [TimeoutException]) {
+                        $failureKind = 'Unavailable'
+                    }
+                    throw
+                }
                 $status = $response.Status
                 if ($status -in @(301, 302, 303, 307, 308)) {
+                    $failureKind = 'Unavailable'
                     if ($redirect -eq 10 -or -not $response.Location) { throw 'Redirect limit reached or missing Location header.' }
                     $uri = [uri]::new($uri, [string]$response.Location)
+                    $failureKind = 'Error'
                     continue
                 }
                 break
             }
             if ($method -eq 'HEAD' -and $status -in @(403, 405, 501)) { continue }
-            if ($status -notin @(200, 206)) { throw "HTTP $status; link could not be verified." }
+            if ($status -notin @(200, 206)) {
+                $failureKind = 'Unavailable'
+                throw "HTTP $status; link could not be verified."
+            }
             if ($response.ContentType -match '(?i)text/html|application/xhtml') {
+                $failureKind = 'Unavailable'
                 throw 'Endpoint returned HTML rather than an installer/archive response.'
             }
             return [pscustomobject]@{
                 Result = 'PASS'; Source = $Link.Source; Url = $Link.Url
+                FailureKind = ''
                 Method = $method; Status = $status; FinalUrl = $uri.AbsoluteUri; Detail = 'Available (headers only)'
             }
         }
@@ -138,6 +161,7 @@ function Test-SetupDownloadLink {
     catch {
         return [pscustomobject]@{
             Result = 'FAIL'; Source = $Link.Source; Url = $Link.Url
+            FailureKind = $failureKind
             Method = $method; Status = $status; FinalUrl = [string]$uri; Detail = $_.Exception.Message
         }
     }
@@ -166,10 +190,11 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($failed.Count) { $failed | Format-List | Out-Host }
         if ($ReportPath) { $results | Export-Csv -LiteralPath $ReportPath -NoTypeInformation -Encoding UTF8 }
         Write-Host "$($results.Count - $failed.Count)/$($results.Count) unique download URLs passed. No installer bodies read; no software installed."
+        if (@($failed | Where-Object FailureKind -eq 'Error').Count) { exit 2 }
         if ($failed.Count) { exit 1 }
         exit 0
     }
-    catch { Write-Error -ErrorRecord $_ -ErrorAction Continue; exit 1 }
+    catch { Write-Error -ErrorRecord $_ -ErrorAction Continue; exit 2 }
     finally {
         if ($null -ne $client) { $client.Dispose() }
         if ($null -ne $handler) { $handler.Dispose() }

@@ -41,7 +41,8 @@ follows up to 10 HTTPS redirects. HEAD requests fall back to a range GET on
 403/405/501; bodies are never read, even when Range is ignored. Requests time out
 after 30 seconds each (`-TimeoutSeconds` can override). HTML landing pages,
 HTTP errors, network failures and unsafe redirects fail the check. Exit code 0
-means all links passed; 1 means at least one check or discovery/reporting failed.
+means all links passed; 1 means unavailable links; 2 means configuration,
+discovery, reporting or unexpected checker errors.
 No administrator privileges or installer execution is needed.
 
 Run `.\Test-DownloadUrls.Offline.ps1` for the checker's network-free regression
@@ -55,8 +56,12 @@ runs every Monday at 07:23 UTC, on relevant pull requests/pushes to `main`, or
 manually using **Actions > Check download URLs > Run workflow**. Scheduled runs
 use the default branch; the workflow must be merged there for scheduled/manual
 availability. It uploads `download-url-report` (CSV, retained for 14 days), even
-when a URL check fails. No failures are ignored, including the known unavailable
-2022 Update 2 Patch 6 link. This workflow does not gate the build/release workflow;
+when a URL check fails. Unavailable links (including the known unavailable 2022
+Update 2 Patch 6 link) produce a GitHub Actions warning and job-summary notice
+instead of failing the workflow; CSV entries remain `FAIL`. Lint/test failures,
+invalid configured URLs, unexpected checker errors and report/upload failures
+remain failures. The standalone script still returns a nonzero exit code for
+unavailable links. This workflow does not gate the build/release workflow;
 branch protection can independently require its check.
 
 | CLI version | Azure DevOps Server option | SQL pairing for a fresh local installation |

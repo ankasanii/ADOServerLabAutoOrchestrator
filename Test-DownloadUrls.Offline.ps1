@@ -11,7 +11,7 @@ if ($links.Count -ne @($links.Url | Select-Object -Unique).Count -or
     -not @($links | Where-Object Source -like '*2020 Patch 10*').Count) {
     throw 'Discovery must deduplicate release links and include worker literals and the manual-only patch archive.'
 }
-foreach ($scenario in @('Success', 'Redirect', 'Fallback', 'Missing', 'Html', 'Downgrade', 'Loop', 'Timeout', 'InvalidUri')) {
+foreach ($scenario in @('Success', 'Redirect', 'Fallback', 'Missing', 'Html', 'Downgrade', 'Loop', 'Timeout', 'Network', 'InvalidUri', 'Unexpected')) {
     & {
         $script:requestCount = 0
         $script:methods = @()
@@ -29,6 +29,8 @@ foreach ($scenario in @('Success', 'Redirect', 'Fallback', 'Missing', 'Html', 'D
                     'Downgrade' { $status = 302; $location = 'http://example.invalid/payload.exe' }
                     'Loop' { $status = 302; $location = '/loop' }
                     'Timeout' { throw [TimeoutException]::new('Fixture request timeout') }
+                    'Network' { throw [Net.Http.HttpRequestException]::new('Fixture network failure') }
+                    'Unexpected' { throw [InvalidOperationException]::new('Fixture checker bug') }
                 }
                 [pscustomobject]@{ Status = $status; Location = $location; ContentType = $type }
             }
@@ -36,6 +38,8 @@ foreach ($scenario in @('Success', 'Redirect', 'Fallback', 'Missing', 'Html', 'D
             $result = Test-SetupDownloadLink -Link ([pscustomobject]@{ Source = 'fixture'; Url = $url }) -Client $null -TimeoutSeconds 1
             $pass = $scenario -in @('Success', 'Redirect', 'Fallback')
             if (($result.Result -eq 'PASS') -ne $pass) { throw "Incorrect result for $scenario." }
+            $expectedKind = if ($pass) { '' } elseif ($scenario -in @('InvalidUri', 'Unexpected')) { 'Error' } else { 'Unavailable' }
+            if ($result.FailureKind -ne $expectedKind) { throw "Incorrect failure classification for $scenario." }
             if ($scenario -eq 'Fallback' -and ($script:methods -join ',') -ne 'HEAD,GET') { throw 'HEAD rejection must use GET fallback.' }
             if ($scenario -eq 'Redirect' -and $result.FinalUrl -ne 'https://example.invalid/payload.exe') { throw 'Relative redirect resolution failed.' }
             if ($scenario -eq 'Downgrade' -and $script:requestCount -ne 1) { throw 'HTTP downgrade must not be contacted.' }
